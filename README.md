@@ -1,12 +1,16 @@
-# Miruro Native
+# Anilili
 
-Native Android client for Miruro, built with Kotlin, Jetpack Compose, and Media3.
-Metadata comes from AniList, while episodes and stream sources are requested through
-Miruro's pipe endpoint and decoded on device. HLS streams play with ExoPlayer; embed
-providers and fallback playback use WebView.
+Anilili is a native Android anime streaming client built with Kotlin, Jetpack Compose, and
+Media3. Metadata, login, library lists, and progress sync are powered by AniList, while
+episodes and stream sources are resolved from multiple providers: Miruro, AniKoto,
+ReAnime, AniZone, AnimeGG, AniNeko, and 2DHive.
 
-> Personal and educational project. This app is not affiliated with Miruro or AniList.
-> Distribute as a sideloaded APK.
+Miruro streams are requested through the Miruro pipe endpoint and decoded on device.
+Additional provider sources are resolved through the Anivexa-backed provider client. HLS
+streams play with ExoPlayer; embed providers and fallback playback use WebView.
+
+> Personal and educational project. This app is not affiliated with AniList, Miruro,
+> AniKoto, ReAnime, AniZone, AnimeGG, AniNeko, or 2DHive. Distribute as a sideloaded APK.
 
 ## Screenshots
 
@@ -22,8 +26,13 @@ providers and fallback playback use WebView.
 
 - Home feeds for trending, popular, and recently released anime.
 - Search, anime details, provider selection, sub/dub selection, and episode lists.
+- Multi-provider stream discovery across Miruro, AniKoto, ReAnime, AniZone, AnimeGG,
+  AniNeko, and 2DHive.
 - Native HLS playback with subtitles, skip intro, and auto advance.
 - WebView playback for embed providers and fallback player routes.
+- AniList login with watching, planning, paused, and completed list views.
+- Watch history, continue-watching resume positions, local watchlist, and optional
+  AniList episode progress sync.
 - Adaptive Compose UI for phone and TV-style layouts.
 
 ## Project Structure
@@ -31,7 +40,7 @@ providers and fallback playback use WebView.
 | Path | Purpose |
 | --- | --- |
 | `app/src/main/java/com/miruronative/data` | Domain models and provider catalog |
-| `app/src/main/java/com/miruronative/data/remote` | AniList, pipe, and provider clients |
+| `app/src/main/java/com/miruronative/data/remote` | AniList, Miruro pipe, and provider clients |
 | `app/src/main/java/com/miruronative/ui` | Compose screens and player UI |
 | `docs/PIPE_PROTOCOL.md` | Notes about the Miruro pipe format |
 | `showcase/mobile-1080x2340` | Five curated mobile screenshots |
