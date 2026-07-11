@@ -36,7 +36,8 @@ showcase/*
 !showcase/mobile-1080x2340/
 showcase/mobile-1080x2340/*
 !showcase/mobile-1080x2340/01-home.png
-!showcase/mobile-1080x2340/02-home-browse.png
-!showcase/mobile-1080x2340/03-search.png
-!showcase/mobile-1080x2340/06-anime-details.png
-!showcase/mobile-1080x2340/09-player.png
+!showcase/mobile-1080x2340/02-browse.png
+!showcase/mobile-1080x2340/03-filters.png
+!showcase/mobile-1080x2340/04-search.png
+!showcase/mobile-1080x2340/05-anime-details.png
+!showcase/mobile-1080x2340/06-player.png

@@ -14,18 +14,22 @@ streams play with ExoPlayer; embed providers and fallback playback use WebView.
 
 ## Screenshots
 
-<p>
-  <img src="showcase/mobile-1080x2340/01-home.png" width="160" alt="Home screen" />
-  <img src="showcase/mobile-1080x2340/02-home-browse.png" width="160" alt="Browse screen" />
-  <img src="showcase/mobile-1080x2340/03-search.png" width="160" alt="Search screen" />
-  <img src="showcase/mobile-1080x2340/06-anime-details.png" width="160" alt="Anime details screen" />
-  <img src="showcase/mobile-1080x2340/09-player.png" width="160" alt="Player screen" />
+<p align="center">
+  <a href="showcase/mobile-1080x2340/01-home.png"><img src="showcase/mobile-1080x2340/01-home.png" width="180" alt="Anilili home screen" /></a>
+  <a href="showcase/mobile-1080x2340/02-browse.png"><img src="showcase/mobile-1080x2340/02-browse.png" width="180" alt="Anime browse screen" /></a>
+  <a href="showcase/mobile-1080x2340/03-filters.png"><img src="showcase/mobile-1080x2340/03-filters.png" width="180" alt="Catalog filters" /></a>
+</p>
+<p align="center">
+  <a href="showcase/mobile-1080x2340/04-search.png"><img src="showcase/mobile-1080x2340/04-search.png" width="180" alt="Anime search results" /></a>
+  <a href="showcase/mobile-1080x2340/05-anime-details.png"><img src="showcase/mobile-1080x2340/05-anime-details.png" width="180" alt="Anime details and server selection" /></a>
+  <a href="showcase/mobile-1080x2340/06-player.png"><img src="showcase/mobile-1080x2340/06-player.png" width="180" alt="Video player and episode grid" /></a>
 </p>
 
 ## Features
 
 - Home feeds for trending, popular, and recently released anime.
-- Search, anime details, provider selection, sub/dub selection, and episode lists.
+- Browse and search with genre, tag, year, status, format, rating, and sort filters.
+- Anime details, provider selection, sub/dub selection, ratings, and episode lists.
 - Multi-provider stream discovery across Miruro, AniKoto, ReAnime, AniZone, AnimeGG,
   AniNeko, and 2DHive.
 - Native HLS playback with subtitles, skip intro, and auto advance.
@@ -43,7 +47,7 @@ streams play with ExoPlayer; embed providers and fallback playback use WebView.
 | `app/src/main/java/com/miruronative/data/remote` | AniList, Miruro pipe, and provider clients |
 | `app/src/main/java/com/miruronative/ui` | Compose screens and player UI |
 | `docs/PIPE_PROTOCOL.md` | Notes about the Miruro pipe format |
-| `showcase/mobile-1080x2340` | Five curated mobile screenshots |
+| `showcase/mobile-1080x2340` | Six curated 1080×2340 mobile screenshots |
 
 ## Build
 
@@ -78,4 +82,4 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
 - `local.properties`, build output, IDE files, Graphify output, temporary folders, and old API
   bundles are intentionally ignored.
-- The showcase folder is intentionally limited to the five mobile screenshots shown above.
+- The showcase folder is intentionally limited to the six mobile screenshots shown above.
