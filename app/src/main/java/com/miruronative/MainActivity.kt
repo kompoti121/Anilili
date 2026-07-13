@@ -66,6 +66,7 @@ import com.miruronative.data.reminder.ReleaseSyncScheduler
 import com.miruronative.diagnostics.CrashReportDialog
 import com.miruronative.diagnostics.CrashReporter
 import com.miruronative.data.settings.SettingsStore
+import com.miruronative.data.update.UpdateManager
 import com.miruronative.ui.detail.DetailScreen
 import com.miruronative.ui.home.HomeScreen
 import com.miruronative.ui.PipeWebView
@@ -77,6 +78,7 @@ import com.miruronative.ui.profile.ProfileScreen
 import com.miruronative.ui.schedule.ScheduleScreen
 import com.miruronative.ui.search.SearchScreen
 import com.miruronative.ui.settings.SettingsScreen
+import com.miruronative.ui.settings.UpdatePromptHost
 import com.miruronative.ui.theme.MiruroTheme
 import com.miruronative.ui.watch.WatchScreen
 import com.miruronative.playback.PlaybackStatus
@@ -186,8 +188,12 @@ private fun MiruroRoot(
         }
     }
 
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { UpdateManager.autoCheckIfDue(context) }
+
     CompositionLocalProvider(LocalAppDeviceProfile provides deviceProfile) {
         NotificationPermissionEffect()
+        UpdatePromptHost()
         Box(Modifier.fillMaxSize()) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,

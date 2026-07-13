@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -50,6 +51,7 @@ import com.miruronative.data.library.MalExportFile
 import com.miruronative.data.reminder.AutomaticReleaseManager
 import com.miruronative.data.reminder.ReleaseSyncScheduler
 import com.miruronative.data.settings.SettingsStore
+import com.miruronative.data.update.UpdateManager
 import com.miruronative.ui.UiState
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
@@ -75,6 +77,7 @@ fun SettingsScreen(
     val preferDub by SettingsStore.preferDub.collectAsState()
     val releaseNotifications by SettingsStore.releaseNotifications.collectAsState()
     val syncSavedToAniList by SettingsStore.syncSavedToAniList.collectAsState()
+    val updateState by UpdateManager.state.collectAsState()
     val profile = (profileState as? UiState.Success<AniListProfile>)?.data
     val scope = rememberCoroutineScope()
     var pendingMalExport by remember { mutableStateOf<MalExportFile?>(null) }
@@ -223,6 +226,34 @@ fun SettingsScreen(
                     icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
                     enabled = history.isNotEmpty(),
                     onClick = LibraryStore::clearHistory,
+                )
+            }
+            item { SectionDivider() }
+
+            item { SettingsSectionTitle("App") }
+            item {
+                SettingsAction(
+                    title = when (updateState) {
+                        is UpdateManager.State.Checking -> "Checking for updates..."
+                        is UpdateManager.State.Downloading -> "Downloading update..."
+                        else -> "Check for updates"
+                    },
+                    icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null) },
+                    enabled = updateState !is UpdateManager.State.Checking &&
+                        updateState !is UpdateManager.State.Downloading,
+                    onClick = { UpdateManager.check(context, manual = true) },
+                )
+            }
+            item {
+                Text(
+                    if (updateState is UpdateManager.State.UpToDate) {
+                        "You're on the latest version (v${UpdateManager.currentVersion})"
+                    } else {
+                        "Version ${UpdateManager.currentVersion}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
             }
         }
