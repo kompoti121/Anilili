@@ -9,13 +9,17 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -254,7 +258,6 @@ fun PlayerSurface(
                         PlayerView.ControllerVisibilityListener { visibility ->
                             controllerVisible = visibility == View.VISIBLE
                             if (visibility != View.VISIBLE) {
-                                settingsExpanded = false
                                 // TV: the controller's buttons held window focus; when they go
                                 // GONE focus is cleared entirely and every remote key except
                                 // Back lands nowhere. Reclaim focus so D-pad/OK can resummon
@@ -322,13 +325,10 @@ fun PlayerSurface(
 
         PlaybackSettingsMenu(
             controller = controller,
-            expanded = settingsExpanded && controllerVisible,
+            expanded = settingsExpanded,
             onDismiss = { settingsExpanded = false },
             autoSkipIntroOutro = autoSkipIntroOutro,
             onAutoSkipIntroOutroChange = SettingsStore::setAutoSkipIntroOutro,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 72.dp),
         )
 
         if (controller == null) {
@@ -377,15 +377,27 @@ private fun PlaybackSettingsMenu(
     onDismiss: () -> Unit,
     autoSkipIntroOutro: Boolean,
     onAutoSkipIntroOutroChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    if (controller == null) return
+    if (controller == null || !expanded) return
     var pinnedHeight by remember(controller) { mutableStateOf<Int?>(null) }
     val context = LocalContext.current
     val trackNameProvider = remember(context) { DefaultTrackNameProvider(context.resources) }
 
-    Box(modifier) {
-        DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+    // A dialog rather than an anchored DropdownMenu: dialogs get reliable D-pad focus on TV,
+    // where this menu is the only way to pick quality, subtitles, and audio tracks.
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Playback settings") },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
             val heights = controller.currentTracks.groups
                 .filter { it.type == C.TRACK_TYPE_VIDEO }
                 .flatMap { group -> (0 until group.length).map { group.getTrackFormat(it).height } }
@@ -482,8 +494,9 @@ private fun PlaybackSettingsMenu(
                     )
                 }
             }
-        }
-    }
+            }
+        },
+    )
 }
 
 @Composable

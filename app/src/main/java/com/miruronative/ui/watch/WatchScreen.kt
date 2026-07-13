@@ -49,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -210,6 +212,13 @@ private fun WatchContent(
     val device = LocalAppDeviceProfile.current
     val configuration = LocalConfiguration.current
     var sourceMenuExpanded by remember { mutableStateOf(false) }
+    val listFocus = remember { FocusRequester() }
+
+    // TV: leaving fullscreen must hand focus to the episode/source area — otherwise it can
+    // stay inside the player (or an embed WebView) and the D-pad never reaches the list.
+    LaunchedEffect(fullscreen) {
+        if (device.isTv && !fullscreen) runCatching { listFocus.requestFocus() }
+    }
 
     // A dialog rather than a DropdownMenu: dialogs get reliable D-pad focus on TV, and the
     // list is easier to hit on phones too.
@@ -397,7 +406,9 @@ private fun WatchContent(
                 ) {
                     TextButton(
                         onClick = onAnimeDetails,
-                        modifier = Modifier.focusHighlight(RoundedCornerShape(20.dp)),
+                        modifier = Modifier
+                            .focusRequester(listFocus)
+                            .focusHighlight(RoundedCornerShape(20.dp)),
                     ) {
                         Text("Anime page")
                     }

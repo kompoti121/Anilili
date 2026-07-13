@@ -325,7 +325,7 @@ private fun FilterSheet(
                             val digits = value.filter(Char::isDigit).take(4)
                             vm.setYear(digits.toIntOrNull()?.takeIf { it in 1900..2100 })
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().tvEscapeDown(),
                         placeholder = { Text("Any year (for example 2024)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
@@ -368,7 +368,7 @@ private fun FilterSheet(
                         OutlinedTextField(
                             value = tagSearch,
                             onValueChange = { tagSearch = it },
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).tvEscapeDown(),
                             placeholder = { Text("Find a tag") },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                             singleLine = true,
@@ -397,6 +397,23 @@ private fun FilterSheet(
                     Text("Show results", fontWeight = FontWeight.Bold)
                 }
             }
+        }
+    }
+}
+
+/** TV: text fields consume D-pad Down; hand focus to the next element manually. */
+@Composable
+private fun Modifier.tvEscapeDown(): Modifier {
+    val device = LocalAppDeviceProfile.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    return this.onPreviewKeyEvent { event ->
+        if (device.isTv && event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+            keyboard?.hide()
+            focusManager.moveFocus(FocusDirection.Down)
+            true
+        } else {
+            false
         }
     }
 }
