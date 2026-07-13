@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,6 +92,9 @@ fun PlayerSurface(
     onToggleFullscreen: (() -> Unit)? = null,
     startPositionMs: Long = 0,
     onProgress: ((Long, Long) -> Unit)? = null,
+    onPreviousEpisode: (() -> Unit)? = null,
+    hasNextEpisode: Boolean = true,
+    hasPreviousEpisode: Boolean = true,
 ) {
     val context = LocalContext.current
     val device = LocalAppDeviceProfile.current
@@ -189,6 +193,11 @@ fun PlayerSurface(
 
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var controllerVisible by remember { mutableStateOf(false) }
+    val currentOnNextEpisode by rememberUpdatedState(onNextEpisode)
+    val currentOnPreviousEpisode by rememberUpdatedState(onPreviousEpisode)
+    var episodeButtons by remember {
+        mutableStateOf<Pair<android.widget.ImageButton, android.widget.ImageButton>?>(null)
+    }
     var settingsExpanded by remember { mutableStateOf(false) }
     var seekFlash by remember { mutableIntStateOf(0) } // -10 / +10, 0 = hidden
     var seekFlashTick by remember { mutableIntStateOf(0) }
@@ -270,6 +279,10 @@ fun PlayerSurface(
                         setFullscreenButtonClickListener { onToggleFullscreen() }
                     }
                     bindUnifiedSettingsButton { settingsExpanded = true }
+                    episodeButtons = installEpisodeButtons(
+                        onPrevious = { currentOnPreviousEpisode?.invoke() },
+                        onNext = { currentOnNextEpisode() },
+                    )
                     if (device.isTv) post { requestFocus() }
                     playerView = this
                 }
@@ -277,6 +290,13 @@ fun PlayerSurface(
             update = {
                 it.player = controller
                 it.bindUnifiedSettingsButton { settingsExpanded = true }
+                episodeButtons?.let { (previous, next) ->
+                    val prevEnabled = hasPreviousEpisode && onPreviousEpisode != null
+                    previous.isEnabled = prevEnabled
+                    previous.alpha = if (prevEnabled) 1f else 0.35f
+                    next.isEnabled = hasNextEpisode
+                    next.alpha = if (hasNextEpisode) 1f else 0.35f
+                }
             },
             onRelease = {
                 it.player = null
@@ -366,6 +386,45 @@ fun PlayerSurface(
             }
         }
     }
+}
+
+/**
+ * Injects episode prev/next into the controller's bottom button row. Media3's own
+ * prev/next are playlist-based (a single media item disables them), and Compose overlay
+ * buttons are unreachable by D-pad because focus stays inside PlayerView — so real View
+ * buttons in the controller are the only variant that works for touch and TV alike.
+ */
+@OptIn(UnstableApi::class)
+private fun PlayerView.installEpisodeButtons(
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+): Pair<android.widget.ImageButton, android.widget.ImageButton>? {
+    val row = findViewById<android.view.ViewGroup>(androidx.media3.ui.R.id.exo_basic_controls)
+        ?: return null
+    fun button(drawable: Int, description: String, onClick: () -> Unit) =
+        android.widget.ImageButton(
+            context,
+            null,
+            0,
+            androidx.media3.ui.R.style.ExoStyledControls_Button_Bottom,
+        ).apply {
+            setImageResource(drawable)
+            contentDescription = description
+            setOnClickListener { onClick() }
+        }
+    val previous = button(
+        androidx.media3.ui.R.drawable.exo_styled_controls_previous,
+        "Previous episode",
+        onPrevious,
+    )
+    val next = button(
+        androidx.media3.ui.R.drawable.exo_styled_controls_next,
+        "Next episode",
+        onNext,
+    )
+    row.addView(previous, 0)
+    row.addView(next, 1)
+    return previous to next
 }
 
 /** Unified settings opened from Media3's built-in settings button. */

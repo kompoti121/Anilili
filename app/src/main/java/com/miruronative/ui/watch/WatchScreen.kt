@@ -333,6 +333,9 @@ private fun WatchContent(
                     onToggleFullscreen = onToggleFullscreen,
                     startPositionMs = data.startPositionMs,
                     onProgress = onProgress,
+                    onPreviousEpisode = onPrev,
+                    hasNextEpisode = data.hasNext,
+                    hasPreviousEpisode = data.hasPrev,
                 )
             }
             if (data.isResolving) {
