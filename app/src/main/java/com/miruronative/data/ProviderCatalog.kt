@@ -17,7 +17,9 @@ object ProviderCatalog {
     private val miruroEmbed = setOf("nun", "bun", "twin", "cog", "telli")
 
     // Anivexa providers we query (reliable, self-hosted sources).
-    val anivexaProviders = listOf("anikoto", "reanime", "anizone", "animegg", "anineko", "2dhive")
+    val anivexaProviders = listOf(
+        "anikoto", "allanime", "animekai", "reanime", "anizone", "animegg", "anineko", "2dhive",
+    )
 
     private val order = miruroOrder + anivexaProviders
 
@@ -33,6 +35,8 @@ object ProviderCatalog {
 
     fun label(provider: String): String = when (provider) {
         "2dhive" -> "2Dhive"
+        "allanime" -> "AllAnime"
+        "animekai" -> "AnimeKai"
         else -> provider.replaceFirstChar { it.uppercase() }
     }
 }

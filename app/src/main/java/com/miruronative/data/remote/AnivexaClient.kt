@@ -49,6 +49,8 @@ class AnivexaClient(
 
     private val mediaCache = boundedMap<Int, Media>(100)
     private val identityCache = boundedMap<String, String>(250)
+    private val allAnime = AllAnimeProvider(client, json)
+    private val animeKai = AnimeKaiProvider(client)
 
     suspend fun getEpisodes(anilistId: Int): EpisodesResult = withContext(Dispatchers.IO) {
         val media = media(anilistId)
@@ -75,6 +77,8 @@ class AnivexaClient(
         val media = media(request.anilistId)
         when (request.provider) {
             "anikoto" -> anikoto(media, request.audio, request.episode)
+            "allanime" -> allAnime.sources(media, request.audio, request.episode)
+            "animekai" -> animeKai.sources(media, request.audio, request.episode)
             "reanime" -> reanime(media, request.audio, request.episode)
             "anizone" -> anizone(media, request.episode)
             "animegg" -> animegg(media, request.audio, request.episode)
