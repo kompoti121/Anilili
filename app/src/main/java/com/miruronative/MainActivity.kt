@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -87,6 +88,7 @@ import com.miruronative.ui.theme.MiruroTheme
 import com.miruronative.ui.watch.WatchScreen
 import com.miruronative.playback.PlaybackStatus
 import com.miruronative.playback.PlaybackService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -95,11 +97,14 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         DiagnosticsLog.event("MainActivity.onCreate start savedState=${savedInstanceState != null}")
+        window.setBackgroundDrawable(ColorDrawable(Color.rgb(5, 5, 6)))
+        window.decorView.setBackgroundColor(Color.rgb(5, 5, 6))
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        window.decorView.setBackgroundColor(Color.rgb(5, 5, 6))
         DiagnosticsLog.snapshot(this, "MainActivity.afterSuper")
         DiagnosticsLog.event(
             "MainActivity intent action=${intent.action ?: "none"} " +
@@ -258,12 +263,19 @@ private fun MiruroRoot(
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showBottomBar = currentRoute in Routes.tabRoutes
+    var resolverWebViewsReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         DiagnosticsLog.event(
             "MiruroRoot composed formFactor=${deviceProfile.formFactor} " +
                 "widthDp=${deviceProfile.widthDp} navRail=${deviceProfile.useNavigationRail}",
         )
+    }
+
+    LaunchedEffect(Unit) {
+        delay(if (deviceProfile.isTv) 3_000 else 1_000)
+        resolverWebViewsReady = true
+        DiagnosticsLog.event("Resolver WebView startup delay elapsed")
     }
 
     LaunchedEffect(currentRoute) {
@@ -330,10 +342,12 @@ private fun MiruroRoot(
                     )
                 }
             }
-            // Hidden Cloudflare-cleared WebView that carries all pipe requests.
-            PipeWebView()
-            // Hidden flixcloud resolver that opportunistically promotes embeds to native HLS.
-            FlixcloudResolverWebView()
+            // Hidden resolver WebViews are not needed for Home. On slow Android TV boxes,
+            // creating WebView during first composition can delay the first visible frame.
+            if (resolverWebViewsReady) {
+                PipeWebView()
+                FlixcloudResolverWebView()
+            }
         }
     }
 }

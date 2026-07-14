@@ -233,6 +233,12 @@ private fun HomeContent(
 ) {
     val device = LocalAppDeviceProfile.current
     val continueFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(data, history.size) {
+        DiagnosticsLog.event(
+            "HomeContent rendered spotlight=${data.spotlight.size} " +
+                "history=${history.size} selectedTab=${selectedTab.name}",
+        )
+    }
     val columns = when {
         device.isTv -> 7
         device.isExpanded -> 6
