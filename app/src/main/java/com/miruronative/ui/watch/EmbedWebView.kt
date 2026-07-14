@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
@@ -19,13 +20,21 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -41,7 +50,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -55,6 +71,7 @@ import com.miruronative.data.settings.SettingsStore
 import com.miruronative.diagnostics.CrashReporter
 import com.miruronative.diagnostics.DiagnosticsLog
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
+import com.miruronative.ui.adaptive.focusHighlight
 import kotlinx.coroutines.delay
 
 /**
@@ -72,7 +89,10 @@ fun EmbedWebView(
     referer: String?,
     modifier: Modifier = Modifier,
     skip: SkipTimes? = null,
+    onPreviousEpisode: (() -> Unit)? = null,
     onNextEpisode: (() -> Unit)? = null,
+    hasPreviousEpisode: Boolean = false,
+    hasNextEpisode: Boolean = false,
     onFullscreenChanged: (Boolean) -> Unit = {},
     onProgress: ((positionMs: Long, durationMs: Long) -> Unit)? = null,
 ) {
@@ -83,8 +103,13 @@ fun EmbedWebView(
     var finishedUrl by remember(url) { mutableStateOf<String?>(null) }
     val currentOnFullscreenChanged by rememberUpdatedState(onFullscreenChanged)
     val currentOnProgress by rememberUpdatedState(onProgress)
+    val currentOnPreviousEpisode by rememberUpdatedState(onPreviousEpisode)
     val currentOnNextEpisode by rememberUpdatedState(onNextEpisode)
+    val currentHasPreviousEpisode by rememberUpdatedState(hasPreviousEpisode)
+    val currentHasNextEpisode by rememberUpdatedState(hasNextEpisode)
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val previousFocus = remember { FocusRequester() }
+    val nextFocus = remember { FocusRequester() }
     var positionMs by remember { mutableLongStateOf(0L) }
     val autoSkipIntroOutro by SettingsStore.autoSkipIntroOutro.collectAsState()
     val autoplay by SettingsStore.autoplay.collectAsState()
@@ -94,6 +119,18 @@ fun EmbedWebView(
     val outroEndMs = skip?.outroEnd?.times(1000)?.toLong()
     var introAutoSkipped by remember(url, introStartMs, introEndMs) { mutableStateOf(false) }
     var outroAutoHandled by remember(url, outroStartMs, outroEndMs) { mutableStateOf(false) }
+
+    LaunchedEffect(url, webView, device.isTv, hasPreviousEpisode, hasNextEpisode) {
+        if (!device.isTv || webView == null) return@LaunchedEffect
+        delay(250)
+        runCatching {
+            when {
+                hasNextEpisode -> nextFocus.requestFocus()
+                hasPreviousEpisode -> previousFocus.requestFocus()
+                else -> webView?.requestFocus()
+            }
+        }
+    }
 
     // Registrable-ish host the embed is allowed to navigate within (its own host + subdomains).
     val allowedHost = remember(url) {
@@ -310,9 +347,24 @@ fun EmbedWebView(
                             userAgentString = userAgentString.replace("; wv", "") // look less like a webview
                         }
                         addJavascriptInterface(progressBridge, "AniliProgress")
+                        setOnKeyListener { _, keyCode, event ->
+                            if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0) {
+                                return@setOnKeyListener false
+                            }
+                            when {
+                                keyCode == KeyEvent.KEYCODE_MEDIA_NEXT && currentHasNextEpisode -> {
+                                    currentOnNextEpisode?.invoke()
+                                    true
+                                }
+                                keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS && currentHasPreviousEpisode -> {
+                                    currentOnPreviousEpisode?.invoke()
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
                         webViewClient = webClient
                         webChromeClient = chromeClient
-                        if (device.isTv) post { requestFocus() }
                         webView = this
                         DiagnosticsLog.event("EmbedWebView factory complete userAgent=${settings.userAgentString.take(100)}")
                     }
@@ -369,6 +421,55 @@ fun EmbedWebView(
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 12.dp)
+                .background(Color.Black.copy(alpha = 0.68f), RoundedCornerShape(4.dp))
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when {
+                        event.key == Key.MediaNext && currentHasNextEpisode -> {
+                            currentOnNextEpisode?.invoke()
+                            true
+                        }
+                        event.key == Key.MediaPrevious && currentHasPreviousEpisode -> {
+                            currentOnPreviousEpisode?.invoke()
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                .focusGroup(),
+        ) {
+            IconButton(
+                onClick = { currentOnPreviousEpisode?.invoke() },
+                enabled = hasPreviousEpisode && currentOnPreviousEpisode != null,
+                modifier = Modifier
+                    .focusRequester(previousFocus)
+                    .focusHighlight(RoundedCornerShape(4.dp)),
+            ) {
+                Icon(
+                    Icons.Default.SkipPrevious,
+                    contentDescription = "Previous episode",
+                    tint = Color.White,
+                )
+            }
+            IconButton(
+                onClick = { currentOnNextEpisode?.invoke() },
+                enabled = hasNextEpisode && currentOnNextEpisode != null,
+                modifier = Modifier
+                    .focusRequester(nextFocus)
+                    .focusHighlight(RoundedCornerShape(4.dp)),
+            ) {
+                Icon(
+                    Icons.Default.SkipNext,
+                    contentDescription = "Next episode",
+                    tint = Color.White,
                 )
             }
         }

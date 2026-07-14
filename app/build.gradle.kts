@@ -22,8 +22,8 @@ android {
         applicationId = "com.miruronative"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.1.10"
+        versionCode = 12
+        versionName = "0.1.11"
     }
 
     signingConfigs {
@@ -97,8 +97,10 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.datasource)
+    implementation(libs.androidx.media3.datasource.cronet)
     implementation(libs.androidx.media3.database)
     implementation(libs.androidx.media3.cast)
+    implementation(libs.play.services.cronet)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.fragment.ktx)
 

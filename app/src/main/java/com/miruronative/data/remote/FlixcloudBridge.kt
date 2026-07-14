@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -33,7 +34,7 @@ object FlixcloudBridge {
     private val main = Handler(Looper.getMainLooper())
     private val counter = AtomicLong(0)
     private val mutex = Mutex()
-    private val pending = ConcurrentHashMap<String, CompletableDeferred<String?>>()
+    private val pending = ConcurrentHashMap<String, CompletableDeferred<FlixcloudResolvedStream?>>()
 
     @Volatile private var webView: WebView? = null
     @Volatile private var activeId: String? = null
@@ -88,7 +89,10 @@ object FlixcloudBridge {
                 request: WebResourceRequest?,
             ): WebResourceResponse? {
                 val url = request?.url?.toString().orEmpty()
-                if (isHlsUrl(url)) complete(activeId, url, "request")
+                if (isHlsUrl(url)) {
+                    val id = activeId
+                    main.postDelayed({ complete(id, url, "request") }, 250)
+                }
                 return null
             }
 
@@ -122,22 +126,17 @@ object FlixcloudBridge {
         wv.removeJavascriptInterface("AndroidFlixcloud")
     }
 
-    suspend fun resolve(embedUrl: String, referer: String?, timeoutMs: Long = 12_000): String? = mutex.withLock {
+    suspend fun resolve(
+        embedUrl: String,
+        referer: String?,
+        timeoutMs: Long = 12_000,
+    ): FlixcloudResolvedStream? = mutex.withLock {
         val id = counter.incrementAndGet().toString()
-        val deferred = CompletableDeferred<String?>()
+        val deferred = CompletableDeferred<FlixcloudResolvedStream?>()
         pending[id] = deferred
         activeId = id
         val target = captureUrl(embedUrl)
-        main.post {
-            val wv = webView
-            if (wv == null) {
-                complete(id, null, "not_attached")
-            } else {
-                DiagnosticsLog.event("$TAG load host=${target.hostOrNone()}")
-                wv.stopLoading()
-                wv.loadUrl(target, referer?.let { mapOf("Referer" to it) } ?: emptyMap())
-            }
-        }
+        loadWhenAttached(id, target, referer, SystemClock.elapsedRealtime() + timeoutMs)
         val result = withTimeoutOrNull(timeoutMs) { deferred.await() }
         if (!deferred.isCompleted) {
             pending.remove(id)
@@ -145,21 +144,43 @@ object FlixcloudBridge {
             main.post { if (activeId == id) webView?.loadUrl("about:blank") }
         }
         if (activeId == id) activeId = null
-        result?.takeIf(::isHlsUrl)
+        result?.takeIf { isHlsUrl(it.url) }
+    }
+
+    private fun loadWhenAttached(id: String, target: String, referer: String?, deadlineMs: Long) {
+        main.post(object : Runnable {
+            override fun run() {
+                if (activeId != id || !pending.containsKey(id)) return
+                val wv = webView
+                if (wv != null) {
+                    DiagnosticsLog.event("$TAG load host=${target.hostOrNone()}")
+                    wv.stopLoading()
+                    wv.loadUrl(target, referer?.let { mapOf("Referer" to it) } ?: emptyMap())
+                    return
+                }
+                if (SystemClock.elapsedRealtime() >= deadlineMs) {
+                    complete(id, null, "not_attached_timeout")
+                    return
+                }
+                main.postDelayed(this, 50)
+            }
+        })
     }
 
     object Bridge {
         @JavascriptInterface
-        fun onResolved(id: String, url: String) {
-            if (isHlsUrl(url)) complete(id, url, "js")
+        fun onResolved(id: String, url: String, playlistKey: String) {
+            if (isHlsUrl(url)) complete(id, url, "js", playlistKey.ifBlank { null })
         }
     }
 
-    private fun complete(id: String?, url: String?, source: String) {
+    private fun complete(id: String?, url: String?, source: String, playlistKey: String? = null) {
         val actualId = id ?: return
-        pending.remove(actualId)?.complete(url)
+        pending.remove(actualId)?.complete(url?.let { FlixcloudResolvedStream(it, playlistKey) })
         if (url != null) {
-            DiagnosticsLog.event("$TAG resolved source=$source host=${url.hostOrNone()}")
+            DiagnosticsLog.event(
+                "$TAG resolved source=$source host=${url.hostOrNone()} playlistKey=${playlistKey != null}",
+            )
             main.post { if (activeId == actualId) webView?.loadUrl("about:blank") }
         }
     }
@@ -181,7 +202,9 @@ object FlixcloudBridge {
           function report(value) {
             try {
               var url = String(value || '');
-              if (url.indexOf('.m3u8') >= 0) AndroidFlixcloud.onResolved('$id', url);
+               if (url.indexOf('.m3u8') >= 0) {
+                 AndroidFlixcloud.onResolved('$id', url, String(window.__pk || ''));
+               }
             } catch (e) {}
           }
           function muteVideos() {
@@ -238,3 +261,5 @@ object FlixcloudBridge {
     private fun String?.hostOrNone(): String =
         this?.let { runCatching { Uri.parse(it).host }.getOrNull() } ?: "none"
 }
+
+data class FlixcloudResolvedStream(val url: String, val playlistKey: String?)

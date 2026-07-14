@@ -10,7 +10,7 @@ internal object ReanimeFlixcloudParser {
             RegexOption.IGNORE_CASE,
         ).find(html)?.groupValues?.get(1) ?: return emptyList()
 
-        return Regex("""\{([^{}]*)}""").findAll(array)
+        return Regex("""\{([^{}]*)\}""").findAll(array)
             .mapNotNull { match ->
                 val block = match.groupValues[1]
                 val url = jsField(block, "url").takeIf { it.isNotBlank() } ?: return@mapNotNull null

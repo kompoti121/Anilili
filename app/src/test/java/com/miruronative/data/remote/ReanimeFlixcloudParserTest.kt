@@ -42,4 +42,20 @@ class ReanimeFlixcloudParserTest {
         assertEquals(1, ReanimeFlixcloudParser.defaultAudioTrack(html))
         assertNull(ReanimeFlixcloudParser.skip("chapters:[]"))
     }
+
+    @Test
+    fun parsesCurrentFlixcloudSubtitlePayload() {
+        val html = """
+            subtitles:[
+              {url:"https://vault-95.rundowncdn.top/subtitles/video/video_eng_3.srt",language:"English (Track 3 (ENG))",format:"srt",default:true},
+              {url:"https://vault-95.rundowncdn.top/subtitles/video/video_eng_4.srt",language:"English (Forced)",format:"srt",default:false}
+            ],player_settings:{primary_color:"#23ade5"}
+        """.trimIndent()
+
+        val subtitles = ReanimeFlixcloudParser.subtitles(html, "sub")
+
+        assertEquals(2, subtitles.size)
+        assertEquals("English (Track 3 (ENG))", subtitles.first().label)
+        assertEquals("en", subtitles.first().language)
+    }
 }

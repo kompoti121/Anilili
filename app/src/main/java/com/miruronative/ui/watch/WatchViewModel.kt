@@ -129,8 +129,9 @@ class WatchViewModel : ViewModel() {
     }
 
     private suspend fun resolveAndPlay(number: Double) {
+        val requestedProvider = preferred
         DiagnosticsLog.event(
-            "Watch resolve start id=$anilistId episode=${fmt(number)} preferred=$preferred " +
+            "Watch resolve start id=$anilistId episode=${fmt(number)} preferred=$requestedProvider " +
                 "category=${category.api} excluded=${failedProviders.joinToString()}",
         )
         lastRequestedNumber = number
@@ -145,7 +146,7 @@ class WatchViewModel : ViewModel() {
         val resolved = repo.resolveSources(
             anilistId = anilistId,
             number = number,
-            preferred = preferred,
+            preferred = requestedProvider,
             category = category,
             excludedProviders = failedProviders,
         )
@@ -157,6 +158,18 @@ class WatchViewModel : ViewModel() {
                 UiState.Success(it.copy(isResolving = false, notice = message))
             } ?: UiState.Error(message)
             return
+        }
+        val fallbackNotice = if (resolved.provider != requestedProvider) {
+            "${ProviderCatalog.label(requestedProvider)} is unavailable for this episode. " +
+                "Playing ${ProviderCatalog.label(resolved.provider)} instead."
+        } else {
+            null
+        }
+        if (fallbackNotice != null) {
+            DiagnosticsLog.event(
+                "Watch provider fallback requested=$requestedProvider actual=${resolved.provider} " +
+                    "episode=${fmt(number)}",
+            )
         }
         preferred = resolved.provider // stick with whatever actually served the stream
         val sources = if (resolved.sources.skip == null) {
@@ -189,6 +202,7 @@ class WatchViewModel : ViewModel() {
                 artworkUrl = artworkUrl,
                 startPositionMs = resume,
                 isResolving = false,
+                notice = fallbackNotice,
             ),
         )
         recordHistory(number, resolved.provider)

@@ -1,6 +1,7 @@
 package com.miruronative.data.cache
 
 import android.content.Context
+import android.database.sqlite.SQLiteBlobTooBigException
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -11,6 +12,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.miruronative.diagnostics.DiagnosticsLog
 import java.util.LinkedHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,11 +43,11 @@ interface CacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(entry: CacheEntry)
 
-    @Query("UPDATE cache_entries SET lastAccessedAt = :now WHERE `key` = :key")
-    suspend fun touch(key: String, now: Long)
+    @Query("UPDATE cache_entries SET lastAccessedAt = :now WHERE `key` = :key OR instr(`key`, :chunkPrefix) = 1")
+    suspend fun touchTree(key: String, chunkPrefix: String, now: Long)
 
-    @Query("DELETE FROM cache_entries WHERE `key` = :key")
-    suspend fun delete(key: String)
+    @Query("DELETE FROM cache_entries WHERE `key` = :key OR instr(`key`, :chunkPrefix) = 1")
+    suspend fun deleteTree(key: String, chunkPrefix: String)
 
     @Query("DELETE FROM cache_entries WHERE expiresAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
@@ -140,14 +142,15 @@ class AppCache(
                 }
 
                 val value = fetch()
+                val payload = CachePayloadCodec.encode(json.encodeToString(serializer, value))
                 val entry = CacheEntry(
                     key = key,
-                    payload = json.encodeToString(serializer, value),
+                    payload = payload,
                     createdAt = now,
                     expiresAt = now + ttlMs,
                     lastAccessedAt = now,
                 )
-                dao.put(entry)
+                write(entry)
                 synchronized(memory) { memory[key] = entry }
                 prune(now)
                 value
@@ -156,16 +159,52 @@ class AppCache(
 
     private suspend fun read(key: String): CacheEntry? {
         synchronized(memory) { memory[key] }?.let { return it }
-        return dao.get(key)?.also { entry ->
+        return try {
+            val stored = dao.get(key) ?: return null
+            val chunkCount = stored.payload.removePrefix(CHUNK_MARKER).toIntOrNull()
+                ?.takeIf { stored.payload.startsWith(CHUNK_MARKER) && it > 0 }
+            val entry = if (chunkCount == null) {
+                stored
+            } else {
+                val payload = buildString {
+                    for (index in 0 until chunkCount) {
+                        val chunk = dao.get(chunkKey(key, index)) ?: run {
+                            dao.deleteTree(key, chunkPrefix(key))
+                            DiagnosticsLog.event("Cache chunks incomplete key=$key; deleting")
+                            return null
+                        }
+                        append(chunk.payload)
+                    }
+                }
+                stored.copy(payload = payload)
+            }
             synchronized(memory) { memory[key] = entry }
+            entry
+        } catch (e: SQLiteBlobTooBigException) {
+            DiagnosticsLog.throwable("Cache row exceeded CursorWindow key=$key; deleting", e)
+            dao.deleteTree(key, chunkPrefix(key))
+            null
         }
+    }
+
+    private suspend fun write(entry: CacheEntry) {
+        val parts = CachePayloadCodec.split(entry.payload)
+        dao.deleteTree(entry.key, chunkPrefix(entry.key))
+        if (parts.size == 1) {
+            dao.put(entry)
+            return
+        }
+        parts.forEachIndexed { index, payload ->
+            dao.put(entry.copy(key = chunkKey(entry.key, index), payload = payload))
+        }
+        dao.put(entry.copy(payload = "$CHUNK_MARKER${parts.size}"))
     }
 
     private suspend fun <T> decode(entry: CacheEntry, serializer: KSerializer<T>): T? =
         try {
-            json.decodeFromString(serializer, entry.payload)
+            json.decodeFromString(serializer, CachePayloadCodec.decode(entry.payload))
         } catch (_: Exception) {
-            dao.delete(entry.key)
+            dao.deleteTree(entry.key, chunkPrefix(entry.key))
             synchronized(memory) { memory.remove(entry.key) }
             null
         }
@@ -173,7 +212,7 @@ class AppCache(
     private fun touch(entry: CacheEntry, now: Long) {
         val touched = entry.copy(lastAccessedAt = now)
         synchronized(memory) { memory[entry.key] = touched }
-        scope.launch { dao.touch(entry.key, now) }
+        scope.launch { dao.touchTree(entry.key, chunkPrefix(entry.key), now) }
     }
 
     private suspend fun prune(now: Long) {
@@ -183,9 +222,13 @@ class AppCache(
     }
 
     private companion object {
+        const val CHUNK_MARKER = "cache-chunks:"
         const val MEMORY_ENTRIES = 80
         const val DISK_ENTRIES = 500
         const val DEFAULT_STALE_MS = 7L * 24 * 60 * 60 * 1000
         const val DISK_STALE_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
+
+        fun chunkPrefix(key: String): String = "$key|chunk|"
+        fun chunkKey(key: String, index: Int): String = "${chunkPrefix(key)}$index"
     }
 }

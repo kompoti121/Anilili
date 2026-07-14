@@ -17,6 +17,7 @@ import com.miruronative.data.remote.AnivexaClient
 import com.miruronative.data.remote.JikanClient
 import com.miruronative.data.remote.PipeClient
 import com.miruronative.data.settings.SettingsStore
+import com.miruronative.diagnostics.DiagnosticsLog
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,25 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.SetSerializer
 import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
+
+/**
+ * Keeps fallback attempts spread across independent backends. Providers from one backend often
+ * fail together, so exhausting the attempt budget on adjacent aliases defeats fallback entirely.
+ */
+internal fun providerAttemptOrder(preferred: String, providerNames: List<String>): List<String> {
+    val available = (listOf(preferred) + providerNames.sortedBy { ProviderCatalog.sortKey(it) }).distinct()
+    val preferredSource = ProviderCatalog.sourceOf(preferred)
+    val sameSource = available.filter { it != preferred && ProviderCatalog.sourceOf(it) == preferredSource }
+    val otherSource = available.filter { ProviderCatalog.sourceOf(it) != preferredSource }
+
+    return buildList {
+        add(preferred)
+        repeat(maxOf(sameSource.size, otherSource.size)) { index ->
+            otherSource.getOrNull(index)?.let(::add)
+            sameSource.getOrNull(index)?.let(::add)
+        }
+    }
+}
 
 /**
  * Single entry point the UI talks to. Combines AniList metadata with two streaming backends —
@@ -128,19 +148,27 @@ class MiruroRepository(
     // ---- streaming (two backends, cached per source) ----
     /** Fast source — the Miruro pipe. */
     suspend fun miruroEpisodes(anilistId: Int, force: Boolean = false): EpisodesResult = cache.getOrFetch(
-        key = "episodes:miruro:$anilistId",
+        key = "episodes:v3:miruro:$anilistId",
         serializer = EpisodesResult.serializer(),
         ttlMs = EPISODES_TTL,
         forceRefresh = force,
-    ) { pipe.getEpisodes(anilistId) }.withFillerMarks(anilistId)
+    ) {
+        pipe.getEpisodes(anilistId).also {
+            check(!it.isEmpty) { "Miruro returned no episode providers" }
+        }
+    }.withFillerMarks(anilistId)
 
     /** Extra sources — Anivexa-API (can be slower; loaded in the background by the detail screen). */
     suspend fun anivexaEpisodes(anilistId: Int, force: Boolean = false): EpisodesResult = cache.getOrFetch(
-        key = "episodes:anivexa:$anilistId",
+        key = "episodes:v3:anivexa:$anilistId",
         serializer = EpisodesResult.serializer(),
         ttlMs = EPISODES_TTL,
         forceRefresh = force,
-    ) { anivexa.getEpisodes(anilistId) }.withFillerMarks(anilistId)
+    ) {
+        anivexa.getEpisodes(anilistId).also {
+            check(!it.isEmpty) { "Anivexa returned no episode providers" }
+        }
+    }.withFillerMarks(anilistId)
 
     /**
      * Applies MAL filler flags to every provider's episode list. Providers rarely carry filler
@@ -163,10 +191,14 @@ class MiruroRepository(
     /** Merged view of both sources — used where the full provider list is needed (watch screen). */
     suspend fun episodes(anilistId: Int): EpisodesResult = coroutineScope {
         val miruro = async {
-            runCatching { miruroEpisodes(anilistId) }.getOrDefault(EpisodesResult(emptyList()))
+            runCatching { miruroEpisodes(anilistId) }
+                .onFailure { DiagnosticsLog.throwable("Miruro episodes failed id=$anilistId", it) }
+                .getOrDefault(EpisodesResult(emptyList()))
         }
         val anivexa = async {
-            runCatching { anivexaEpisodes(anilistId) }.getOrDefault(EpisodesResult(emptyList()))
+            runCatching { anivexaEpisodes(anilistId) }
+                .onFailure { DiagnosticsLog.throwable("Anivexa episodes failed id=$anilistId", it) }
+                .getOrDefault(EpisodesResult(emptyList()))
         }
         mergeProviders(miruro.await(), anivexa.await())
     }
@@ -200,8 +232,7 @@ class MiruroRepository(
         maxAttempts: Int = 5,
     ): ResolvedSources? {
         val merged = episodes(anilistId)
-        val ordered = (listOf(preferred) + merged.providerNames.sortedBy { ProviderCatalog.sortKey(it) })
-            .distinct()
+        val ordered = providerAttemptOrder(preferred, merged.providerNames)
 
         var attempts = 0
         for (name in ordered) {
@@ -210,9 +241,21 @@ class MiruroRepository(
             val provider = merged.provider(name) ?: continue
             val ep = provider.episodes(category).firstOrNull { it.number == number } ?: continue
             attempts++
-            val result = runCatching { sources(ep.pipeId, name, category, anilistId) }.getOrNull()
+            val result = runCatching { sources(ep.pipeId, name, category, anilistId) }
+                .onFailure {
+                    DiagnosticsLog.throwable(
+                        "Source resolve failed provider=$name id=$anilistId episode=$number",
+                        it,
+                    )
+                }
+                .getOrNull()
             if (result != null && result.streams.isNotEmpty()) {
                 return ResolvedSources(result, name)
+            }
+            if (result != null) {
+                DiagnosticsLog.event(
+                    "Source resolve empty provider=$name id=$anilistId episode=$number",
+                )
             }
         }
         return null

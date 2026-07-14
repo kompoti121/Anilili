@@ -25,8 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
@@ -313,12 +311,21 @@ private fun WatchContent(
                 stream.isEmbed || ProviderCatalog.isEmbed(data.provider) ->
                     Box(Modifier.fillMaxSize()) {
                         LaunchedEffect(stream.url) { PlaybackService.stopActivePlayback() }
+                        EmbedEpisodeNavigationEffect(
+                            hasPrevious = data.hasPrev,
+                            hasNext = data.hasNext,
+                            onPrevious = onPrev,
+                            onNext = onNext,
+                        )
                         EmbedWebView(
                             url = stream.url,
                             referer = stream.referer,
                             modifier = Modifier.fillMaxSize(),
                             skip = data.sources.skip,
+                            onPreviousEpisode = onPrev,
                             onNextEpisode = onNext,
+                            hasPreviousEpisode = data.hasPrev,
+                            hasNextEpisode = data.hasNext,
                             onFullscreenChanged = onFullscreenChanged,
                             onProgress = onProgress,
                         )
@@ -407,20 +414,6 @@ private fun WatchContent(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                    IconButton(
-                        onClick = onPrev,
-                        enabled = data.hasPrev,
-                        modifier = Modifier.focusHighlight(RoundedCornerShape(24.dp)),
-                    ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous episode")
-                    }
-                    IconButton(
-                        onClick = onNext,
-                        enabled = data.hasNext,
-                        modifier = Modifier.focusHighlight(RoundedCornerShape(24.dp)),
-                    ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next episode")
                     }
                 }
                 Row(
@@ -539,6 +532,37 @@ private fun NoSource(onWebFallback: () -> Unit) {
                 onClick = onWebFallback,
                 modifier = Modifier.focusHighlight(RoundedCornerShape(20.dp)),
             ) { Text("Open in web player") }
+        }
+    }
+}
+
+@Composable
+private fun EmbedEpisodeNavigationEffect(
+    hasPrevious: Boolean,
+    hasNext: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val currentHasPrevious by rememberUpdatedState(hasPrevious)
+    val currentHasNext by rememberUpdatedState(hasNext)
+    val currentOnPrevious by rememberUpdatedState(onPrevious)
+    val currentOnNext by rememberUpdatedState(onNext)
+
+    DisposableEffect(Unit) {
+        val navigator: (Int) -> Unit = { direction ->
+            DiagnosticsLog.event("Embed player episode navigator direction=$direction")
+            when {
+                direction > 0 && currentHasNext -> currentOnNext()
+                direction < 0 && currentHasPrevious -> currentOnPrevious()
+            }
+        }
+        PlaybackService.episodeNavigator = navigator
+        DiagnosticsLog.event("Embed player episode navigator registered hasPrev=$hasPrevious hasNext=$hasNext")
+        onDispose {
+            if (PlaybackService.episodeNavigator === navigator) {
+                PlaybackService.episodeNavigator = null
+            }
+            DiagnosticsLog.event("Embed player episode navigator cleared")
         }
     }
 }

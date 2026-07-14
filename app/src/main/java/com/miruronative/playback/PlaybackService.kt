@@ -2,6 +2,7 @@ package com.miruronative.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.webkit.WebSettings
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -12,7 +13,11 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.cast.CastPlayer
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cronet.CronetDataSource
+import androidx.media3.datasource.cronet.CronetUtil
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
@@ -43,22 +48,37 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private lateinit var castPlayer: CastPlayer
     private lateinit var session: MediaSession
-    private lateinit var httpFactory: DefaultHttpDataSource.Factory
+    private lateinit var httpFactory: HttpDataSource.Factory
 
     override fun onCreate() {
         super.onCreate()
         DiagnosticsLog.event("PlaybackService.onCreate")
-        httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(PLAYER_USER_AGENT)
+        val playerUserAgent = runCatching { WebSettings.getDefaultUserAgent(this).replace("; wv", "") }
+            .getOrDefault(FALLBACK_PLAYER_USER_AGENT)
+        activeUserAgent = playerUserAgent
+        val defaultHttpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(playerUserAgent)
             .setAllowCrossProtocolRedirects(true)
+        val cronetEngine = CronetUtil.buildCronetEngine(this, null, true)
+        httpFactory = if (cronetEngine != null) {
+            DiagnosticsLog.event("PlaybackService HTTP transport=Cronet provider=${cronetEngine.versionString}")
+            CronetDataSource.Factory(cronetEngine, Runnable::run)
+                .setUserAgent(playerUserAgent)
+        } else {
+            DiagnosticsLog.event("PlaybackService HTTP transport=DefaultHttpDataSource")
+            defaultHttpFactory
+        }
         activeHttpFactory = httpFactory
         val cacheDataSource = CacheDataSource.Factory()
             .setCache(MediaCache.get(this))
             .setUpstreamDataSourceFactory(httpFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val playbackDataSource = DataSource.Factory {
+            FlixcloudPlaylistDataSource(cacheDataSource.createDataSource()) { activePlaylistKey }
+        }
 
         player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSource))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(playbackDataSource))
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .build()
@@ -215,12 +235,16 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val EXTRA_WATCH_ROUTE = "watch_route"
-        private const val PLAYER_USER_AGENT =
+        private const val FALLBACK_PLAYER_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
 
         @Volatile
-        private var activeHttpFactory: DefaultHttpDataSource.Factory? = null
+        private var activeHttpFactory: HttpDataSource.Factory? = null
+        @Volatile
+        private var activeUserAgent: String = FALLBACK_PLAYER_USER_AGENT
+        @Volatile
+        private var activePlaylistKey: String? = null
         @Volatile
         private var activePlayer: Player? = null
 
@@ -253,15 +277,37 @@ class PlaybackService : MediaSessionService() {
         }
 
         /** Applies per-provider headers before Media3 creates manifest and segment data sources. */
-        fun configureRequestHeaders(referer: String?) {
+        fun configureRequestHeaders(referer: String?, playlistKey: String?) {
+            activePlaylistKey = playlistKey
             val safeReferer = referer ?: "https://www.miruro.to/"
-            val origin = android.net.Uri.parse(safeReferer).let { uri ->
+            val refererUri = android.net.Uri.parse(safeReferer)
+            val origin = refererUri.let { uri ->
                 if (uri.scheme != null && uri.host != null) "${uri.scheme}://${uri.host}" else safeReferer
             }
+            val headers = mutableMapOf("Referer" to safeReferer, "Origin" to origin)
+            if (refererUri.host.orEmpty().endsWith("flixcloud.cc", ignoreCase = true)) {
+                val chromiumMajor = Regex("(?:Chrome|Chromium)/(\\d+)")
+                    .find(activeUserAgent)?.groupValues?.get(1) ?: "137"
+                headers += mapOf(
+                    "Accept" to "*/*",
+                    "Accept-Language" to "en-US,en;q=0.9",
+                    "Sec-CH-UA" to "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"$chromiumMajor\", \"Android WebView\";v=\"$chromiumMajor\"",
+                    "Sec-CH-UA-Mobile" to "?1",
+                    "Sec-CH-UA-Platform" to "\"Android\"",
+                    "Sec-Fetch-Dest" to "empty",
+                    "Sec-Fetch-Mode" to "cors",
+                    "Sec-Fetch-Site" to "same-site",
+                    "X-Requested-With" to "com.miruronative",
+                )
+            }
             activeHttpFactory?.setDefaultRequestProperties(
-                mapOf("Referer" to safeReferer, "Origin" to origin),
+                headers,
             )
-            DiagnosticsLog.event("PlaybackService.configureRequestHeaders refererHost=${android.net.Uri.parse(safeReferer).host ?: "unknown"}")
+            DiagnosticsLog.event(
+                "PlaybackService.configureRequestHeaders " +
+                    "refererHost=${android.net.Uri.parse(safeReferer).host ?: "unknown"} " +
+                    "playlistKey=${playlistKey != null}",
+            )
         }
     }
 }

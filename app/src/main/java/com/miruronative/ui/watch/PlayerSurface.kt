@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackGroup
@@ -136,6 +137,59 @@ private class ThemedMediaRouteDialogFactory : MediaRouteDialogFactory() {
 
     override fun onCreateControllerDialogFragment(): MediaRouteControllerDialogFragment =
         ThemedMediaRouteControllerDialogFragment()
+}
+
+/** Makes PlayerView's own previous/next buttons navigate episodes, not its one-item playlist. */
+@OptIn(UnstableApi::class)
+private class EpisodeControlPlayer(
+    player: Player,
+    private val hasNextEpisode: Boolean,
+    private val hasPreviousEpisode: Boolean,
+    private val onNextEpisode: () -> Unit,
+    private val onPreviousEpisode: () -> Unit,
+) : ForwardingPlayer(player) {
+    override fun getAvailableCommands(): Player.Commands =
+        super.getAvailableCommands().buildUpon()
+            .removeAll(
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+            )
+            .addIf(Player.COMMAND_SEEK_TO_NEXT, hasNextEpisode)
+            .addIf(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, hasNextEpisode)
+            .addIf(Player.COMMAND_SEEK_TO_PREVIOUS, hasPreviousEpisode)
+            .addIf(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, hasPreviousEpisode)
+            .build()
+
+    override fun isCommandAvailable(command: Int): Boolean = when (command) {
+        Player.COMMAND_SEEK_TO_NEXT,
+        Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+        -> hasNextEpisode
+        Player.COMMAND_SEEK_TO_PREVIOUS,
+        Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+        -> hasPreviousEpisode
+        else -> super.isCommandAvailable(command)
+    }
+
+    override fun hasNextMediaItem(): Boolean = hasNextEpisode
+    override fun hasPreviousMediaItem(): Boolean = hasPreviousEpisode
+
+    override fun seekToNext() {
+        if (hasNextEpisode) onNextEpisode()
+    }
+
+    override fun seekToNextMediaItem() {
+        if (hasNextEpisode) onNextEpisode()
+    }
+
+    override fun seekToPrevious() {
+        if (hasPreviousEpisode) onPreviousEpisode()
+    }
+
+    override fun seekToPreviousMediaItem() {
+        if (hasPreviousEpisode) onPreviousEpisode()
+    }
 }
 
 /** Media3 player surface backed by [PlaybackService] for PiP and system media controls. */
@@ -254,7 +308,7 @@ fun PlayerSurface(
             "PlayerSurface prepare stream type=${stream.typeLabel()} host=${stream.host()} " +
                 "height=${stream.height ?: "auto"} subtitles=${subtitles.size} startMs=$startPositionMs",
         )
-        PlaybackService.configureRequestHeaders(stream.referer)
+        PlaybackService.configureRequestHeaders(stream.referer, stream.playlistKey)
         val watchRoute = Routes.watch(animeId, provider, category, episode)
         val metadata = MediaMetadata.Builder()
             .setTitle(episodeTitle)
@@ -312,20 +366,34 @@ fun PlayerSurface(
     val currentOnPreviousEpisode by rememberUpdatedState(onPreviousEpisode)
     val currentHasNext by rememberUpdatedState(hasNextEpisode)
     val currentHasPrevious by rememberUpdatedState(hasPreviousEpisode)
+    val canGoPrevious = hasPreviousEpisode && onPreviousEpisode != null
+    val playerControls = remember(controller, hasNextEpisode, canGoPrevious) {
+        controller?.let { activeController ->
+            EpisodeControlPlayer(
+                player = activeController,
+                hasNextEpisode = hasNextEpisode,
+                hasPreviousEpisode = canGoPrevious,
+                onNextEpisode = { currentOnNextEpisode() },
+                onPreviousEpisode = { currentOnPreviousEpisode?.invoke() },
+            )
+        }
+    }
 
-    // Bridges the media session's next/previous commands (controller buttons, notification,
-    // hardware media keys) into the episode-resolution flow while this screen is visible.
+    // Bridges notification, remote, and hardware media-key commands into episode resolution.
     DisposableEffect(Unit) {
         DiagnosticsLog.event("PlayerSurface episode navigator registered hasPrev=$hasPreviousEpisode hasNext=$hasNextEpisode")
-        PlaybackService.episodeNavigator = { direction ->
+        val navigator: (Int) -> Unit = { direction ->
             DiagnosticsLog.event("PlayerSurface episode navigator direction=$direction")
             when {
                 direction > 0 && currentHasNext -> currentOnNextEpisode()
                 direction < 0 && currentHasPrevious -> currentOnPreviousEpisode?.invoke()
             }
         }
+        PlaybackService.episodeNavigator = navigator
         onDispose {
-            PlaybackService.episodeNavigator = null
+            if (PlaybackService.episodeNavigator === navigator) {
+                PlaybackService.episodeNavigator = null
+            }
             DiagnosticsLog.event("PlayerSurface episode navigator cleared")
         }
     }
@@ -382,15 +450,15 @@ fun PlayerSurface(
             factory = { ctx ->
                 DiagnosticsLog.event("PlayerSurface AndroidView factory create PlayerView")
                 PlayerView(ctx).apply {
-                    player = controller
+                    player = playerControls
                     setMediaRouteButtonViewProvider(mediaRouteButtonViewProvider)
                     useController = true
                     keepScreenOn = true
                     isFocusable = true
                     isFocusableInTouchMode = true
                     setShowSubtitleButton(true)
-                    // Enabled by the session's ForwardingPlayer, which maps next/previous
-                    // to the episode navigator (the local playlist stays single-item).
+                    // EpisodeControlPlayer maps these to app navigation; the playlist stays
+                    // single-item because each episode resolves against multiple providers.
                     setShowNextButton(true)
                     setShowPreviousButton(true)
                     setShowFastForwardButton(true)
@@ -401,7 +469,12 @@ fun PlayerSurface(
                     setControllerVisibilityListener(
                         PlayerView.ControllerVisibilityListener { visibility ->
                             controllerVisible = visibility == View.VISIBLE
-                            if (visibility != View.VISIBLE) {
+                            if (visibility == View.VISIBLE && device.isTv) {
+                                post {
+                                    findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
+                                        ?.requestFocus()
+                                }
+                            } else if (visibility != View.VISIBLE) {
                                 // TV: the controller's buttons held window focus; when they go
                                 // GONE focus is cleared entirely and every remote key except
                                 // Back lands nowhere. Reclaim focus so D-pad/OK can resummon
@@ -419,7 +492,7 @@ fun PlayerSurface(
                 }
             },
             update = {
-                it.player = controller
+                it.player = playerControls
                 // Deliberately NOT re-setting the media route button provider here: every
                 // setMediaRouteButtonViewProvider call inflates a fresh button, so repeated
                 // update passes stack duplicate cast icons. The factory sets it once.
@@ -494,7 +567,20 @@ fun PlayerSurface(
                 "Next Episode" to onNextEpisode
             else -> null
         }
+        LaunchedEffect(action?.first, playerView, device.isTv) {
+            if (device.isTv) {
+                // Compose may focus a newly inserted skip/next action before PlayerView can
+                // reclaim focus. Return remote input to the player once this frame settles.
+                delay(32)
+                playerView?.requestFocus()
+            }
+        }
         action?.let { (label, onClick) ->
+            val actionModifier = if (controllerVisible) {
+                Modifier.align(Alignment.TopCenter).padding(top = 16.dp)
+            } else {
+                Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 24.dp)
+            }
             OutlinedButton(
                 onClick = onClick,
                 shape = RoundedCornerShape(3.dp),
@@ -504,11 +590,7 @@ fun PlayerSurface(
                     contentColor = Color.White,
                 ),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    // Sit above the controller's bottom bar when it is showing so the button
-                    // never covers the seek/progress bar.
-                    .padding(start = 24.dp, bottom = if (controllerVisible) 96.dp else 24.dp),
+                modifier = actionModifier,
             ) {
                 Text(
                     label.uppercase(),

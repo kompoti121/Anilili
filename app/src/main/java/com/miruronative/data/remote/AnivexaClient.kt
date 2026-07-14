@@ -312,14 +312,14 @@ class AnivexaClient(
             .getOrNull()
 
         val streams = mutableListOf<StreamItem>()
-        if (!nativeHls.isNullOrBlank()) {
+        if (nativeHls != null) {
             streams += stream(
-                nativeHls,
+                nativeHls.url,
                 "hls",
                 "${primary.name} native",
                 "${origin(primary.url)}/",
                 active = true,
-            )
+            ).copy(playlistKey = nativeHls.playlistKey)
         }
         embeds.take(4).forEachIndexed { index, embed ->
             streams += stream(
