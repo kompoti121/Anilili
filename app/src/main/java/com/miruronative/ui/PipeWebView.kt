@@ -30,6 +30,10 @@ fun PipeWebView() {
                     it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                     it.isFocusable = false
                     it.isClickable = false
+                    // Software layer keeps this hidden helper off Chromium's SurfaceControl
+                    // overlay path: with "WebView overlays" enabled (server-side WebView flag),
+                    // the hardware overlay of even a 1dp WebView can black out the whole window.
+                    it.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                     PipeBridge.attach(it)
                     DiagnosticsLog.event("PipeWebView factory create WebView complete")
                 }

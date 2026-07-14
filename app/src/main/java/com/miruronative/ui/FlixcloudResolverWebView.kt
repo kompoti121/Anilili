@@ -27,6 +27,9 @@ fun FlixcloudResolverWebView() {
                     it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                     it.isFocusable = false
                     it.isClickable = false
+                    // Software layer keeps this hidden helper off Chromium's SurfaceControl
+                    // overlay path — see PipeWebView for details.
+                    it.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                     FlixcloudBridge.attach(it)
                     DiagnosticsLog.event("FlixcloudResolverWebView factory create WebView complete")
                 }
