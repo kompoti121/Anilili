@@ -139,7 +139,7 @@ object FlixcloudBridge {
             }
         }
         val result = withTimeoutOrNull(timeoutMs) { deferred.await() }
-        if (result == null) {
+        if (!deferred.isCompleted) {
             pending.remove(id)
             DiagnosticsLog.event("$TAG timeout host=${target.hostOrNone()}")
             main.post { if (activeId == id) webView?.loadUrl("about:blank") }
