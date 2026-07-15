@@ -14,8 +14,11 @@ import com.miruronative.data.model.DiscoverOptions
 import com.miruronative.data.model.MediaListCollection
 import com.miruronative.data.model.MediaPage
 import com.miruronative.data.model.Viewer
+import com.miruronative.diagnostics.DiagnosticsLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -41,6 +44,36 @@ class AniListClient(
     private val json: Json,
 ) {
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
+
+    // Client-side pacing so bursts (the home screen's parallel loads, list sync, the related-
+    // seasons walk) don't hit AniList's degraded ~30/min limit and earn a 1-minute 429 timeout.
+    // We read X-RateLimit-Remaining/Reset from every response and glide toward the window reset as
+    // the budget runs low, instead of only reacting to a 429 after the fact.
+    private val rateGate = Mutex()
+    private var nextSlotMs = 0L // guarded by rateGate
+    @Volatile private var rateRemaining = Int.MAX_VALUE
+    @Volatile private var rateResetMs = 0L
+
+    /** Reserve the next request slot, spacing bursts and backing off as the budget nears zero. */
+    private suspend fun awaitRateSlot() {
+        val slot = rateGate.withLock {
+            val (start, next) = nextRateSlot(System.currentTimeMillis(), rateRemaining, rateResetMs, nextSlotMs)
+            nextSlotMs = next
+            start
+        }
+        val wait = slot - System.currentTimeMillis()
+        if (wait > 0) {
+            if (wait >= SLOW_WAIT_LOG_MS) {
+                DiagnosticsLog.event("AniList throttle waiting ${wait}ms (remaining=$rateRemaining)")
+            }
+            delay(wait)
+        }
+    }
+
+    private fun recordRateHeaders(remainingHeader: String?, resetHeader: String?) {
+        remainingHeader?.toIntOrNull()?.let { rateRemaining = it }
+        resetHeader?.toLongOrNull()?.let { rateResetMs = it * 1_000 }
+    }
 
     private val mediaListFields = """
         id
@@ -466,6 +499,7 @@ class AniListClient(
         val payload = json.encodeToString(GraphQLRequest.serializer(), GraphQLRequest(query, variables))
         var attempt = 0
         while (true) {
+            awaitRateSlot()
             val builder = Request.Builder()
                 .url(ANILIST_URL)
                 .post(payload.toRequestBody(jsonMedia))
@@ -493,8 +527,12 @@ class AniListClient(
                 )
             }
             response.use { resp ->
+                recordRateHeaders(resp.header("X-RateLimit-Remaining"), resp.header("X-RateLimit-Reset"))
                 if (resp.code == 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
                     val seconds = resp.header("Retry-After")?.toLongOrNull() ?: 10L
+                    // The window is closed for ~a minute now; make the pacer wait it out too.
+                    rateRemaining = 0
+                    rateResetMs = maxOf(rateResetMs, System.currentTimeMillis() + seconds.coerceIn(1, 60) * 1_000)
                     retryAfterMs = seconds.coerceIn(1, 60) * 1_000
                 } else {
                     val body = resp.body?.string().orEmpty()
@@ -520,4 +558,32 @@ class AniListClient(
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
     }
+}
+
+// Minimum gap between request starts — spaces bursts without stalling interactive use.
+private const val MIN_SPACING_MS = 90L
+// Cap on the per-request gap while spreading a low budget across the rest of the window.
+private const val MAX_SPACING_MS = 3_000L
+// Cap on how long to hold when the budget is fully spent and we're awaiting a reset.
+private const val MAX_BACKOFF_MS = 60_000L
+// Start spreading requests once this few remain in the window.
+private const val RATE_LOW_WATERMARK = 5
+internal const val SLOW_WAIT_LOG_MS = 750L
+
+/**
+ * Pure slot scheduler for AniList pacing. Given [now], the last-seen budget ([remaining] and its
+ * window [reset], both ms epoch) and the previously reserved [nextSlot], returns
+ * (thisRequestStartMs, newNextSlotMs). Normally spaces requests by [MIN_SPACING_MS]; holds until
+ * the window reset when the budget is spent (bounded by [MAX_BACKOFF_MS]); and spreads the last
+ * few calls across the remaining window so we glide to the reset instead of triggering a 429.
+ */
+internal fun nextRateSlot(now: Long, remaining: Int, reset: Long, nextSlot: Long): Pair<Long, Long> {
+    val earliest = if (remaining <= 0 && now < reset) minOf(reset, now + MAX_BACKOFF_MS) else now
+    val interval = if (remaining in 1..RATE_LOW_WATERMARK && now < reset) {
+        ((reset - now) / remaining).coerceIn(MIN_SPACING_MS, MAX_SPACING_MS)
+    } else {
+        MIN_SPACING_MS
+    }
+    val start = maxOf(earliest, nextSlot)
+    return start to (start + interval)
 }
