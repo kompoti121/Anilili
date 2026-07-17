@@ -21,5 +21,21 @@ object MediaCache {
         ).also { instance = it }
     }
 
+    /**
+     * Removes every cached segment, freeing the disk space under [cacheDir]/media. Keeps the
+     * singleton valid so an active player keeps working against the now-empty cache. A segment
+     * currently locked by an in-flight read is left in place. Does disk IO; call off the main thread.
+     */
+    fun clear(context: Context) {
+        val cache = get(context)
+        for (key in cache.keys.toList()) {
+            try {
+                cache.removeResource(key)
+            } catch (_: Exception) {
+                // Locked or already-gone resource; skip it and keep clearing the rest.
+            }
+        }
+    }
+
     private const val MAX_BYTES = 512L * 1024 * 1024
 }

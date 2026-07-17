@@ -22,8 +22,8 @@ android {
         applicationId = "com.miruronative"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.1.18"
+        versionCode = 20
+        versionName = "0.1.19"
     }
 
     signingConfigs {
@@ -41,6 +41,10 @@ android {
     buildTypes {
         debug {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
+            // TEMP: install alongside the release build as com.miruronative.debug so testing
+            // never collides with (and forces an uninstall of) the release's LibraryStore data.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
         release {
             isMinifyEnabled = true

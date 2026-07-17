@@ -3,6 +3,7 @@ package com.miruronative.ui.settings
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -52,6 +54,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.miruronative.data.auth.AuthManager
 import com.miruronative.data.auth.MalAuthManager
+import com.miruronative.data.cache.CacheManager
 import com.miruronative.data.library.LibraryStore
 import com.miruronative.data.library.MalExportFile
 import com.miruronative.data.reminder.AutomaticReleaseManager
@@ -66,7 +69,9 @@ import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.CaptionAppearanceDialog
 import com.miruronative.ui.profile.AniListProfile
 import com.miruronative.ui.profile.ProfileViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,8 +103,14 @@ fun SettingsScreen(
     var malExportMessage by remember { mutableStateOf<String?>(null) }
     var diagnosticsMessage by remember { mutableStateOf<String?>(null) }
     var captionAppearanceVisible by remember { mutableStateOf(false) }
+    var cacheUsage by remember { mutableStateOf<Long?>(null) }
+    var cacheClearing by remember { mutableStateOf(false) }
+    var cacheMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(token, malLoggedIn) { vm.loadIfLoggedIn() }
+    LaunchedEffect(Unit) {
+        cacheUsage = withContext(Dispatchers.IO) { CacheManager.usageBytes(context) }
+    }
 
     if (captionAppearanceVisible) {
         CaptionAppearanceDialog(
@@ -174,6 +185,20 @@ fun SettingsScreen(
                 }
                 .onFailure { error -> malExportMessage = error.message ?: "MAL export failed" }
             malExportBusy = false
+        }
+    }
+
+    fun clearCache() {
+        if (cacheClearing) return
+        scope.launch {
+            cacheClearing = true
+            cacheMessage = null
+            val before = cacheUsage ?: withContext(Dispatchers.IO) { CacheManager.usageBytes(context) }
+            withContext(Dispatchers.IO) { CacheManager.clear(context) }
+            val after = withContext(Dispatchers.IO) { CacheManager.usageBytes(context) }
+            cacheUsage = after
+            cacheMessage = "Freed ${Formatter.formatShortFileSize(context, (before - after).coerceAtLeast(0))}"
+            cacheClearing = false
         }
     }
 
@@ -278,6 +303,29 @@ fun SettingsScreen(
                     icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
                     enabled = history.isNotEmpty(),
                     onClick = LibraryStore::clearHistory,
+                )
+            }
+            item {
+                SettingsAction(
+                    title = cacheUsage.let { usage ->
+                        when {
+                            cacheClearing -> "Clearing cache..."
+                            usage != null -> "Clear cache (${Formatter.formatShortFileSize(context, usage)})"
+                            else -> "Clear cache"
+                        }
+                    },
+                    icon = { Icon(Icons.Default.Storage, contentDescription = null) },
+                    enabled = !cacheClearing && (cacheUsage ?: 0L) > 0L,
+                    onClick = ::clearCache,
+                )
+            }
+            item {
+                Text(
+                    cacheMessage
+                        ?: "Streamed video and images kept on this device for faster playback. The video cache auto-trims at 512 MB.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
             }
             item { SectionDivider() }

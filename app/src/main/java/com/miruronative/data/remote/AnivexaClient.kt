@@ -56,6 +56,8 @@ class AnivexaClient(
     private val identityCache = boundedMap<String, String>(250)
     private val allAnime = AllAnimeProvider(client, json)
     private val animeKai = AnimeKaiProvider(client)
+    private val senshi = SenshiProvider(client, json)
+    private val aniBd = AniBdProvider(client, json)
 
     suspend fun getEpisodes(anilistId: Int, seedMedia: Media? = null): EpisodesResult = withContext(Dispatchers.IO) {
         // The caller (repository) has usually already fetched this AniList Media through the shared
@@ -85,8 +87,8 @@ class AnivexaClient(
                     lookups.getValue(provider).await()?.let { availability ->
                         ProviderData(
                             name = provider,
-                            sub = episodeRows(provider, anilistId, "sub", availability.sub),
-                            dub = episodeRows(provider, anilistId, "dub", availability.dub),
+                            sub = episodeRows(provider, media, "sub", availability.sub),
+                            dub = episodeRows(provider, media, "dub", availability.dub),
                         )
                     }
                 },
@@ -100,6 +102,8 @@ class AnivexaClient(
         seedMedia?.let { mediaCache[request.anilistId] = it }
         val media = media(request.anilistId)
         when (request.provider) {
+            "senshi" -> senshi.sources(media, request.audio, request.episode)
+            "anibd" -> aniBd.sources(media, request.audio, request.episode)
             "anikoto" -> anikoto(media, request.audio, request.episode)
             "allanime" -> allAnime.sources(media, request.audio, request.episode)
             "animekai" -> animeKai.sources(media, request.audio, request.episode)
@@ -116,18 +120,23 @@ class AnivexaClient(
         ?: aniList.animeInfo(id)?.also { mediaCache[id] = it }
         ?: error("Anime $id was not found on AniList")
 
-    private fun episodeRows(provider: String, id: Int, audio: String, numbers: Set<Int>): List<EpisodeItem> =
-        numbers.sorted().map { number ->
+    private fun episodeRows(provider: String, media: Media, audio: String, numbers: Set<Int>): List<EpisodeItem> {
+        // Senshi's catalog carries real episode titles and filler flags; other providers don't.
+        val meta = if (provider == "senshi") senshi.episodeMeta(media) else emptyMap()
+        return numbers.sorted().map { number ->
             EpisodeItem(
-                pipeId = "watch/$provider/$id/$audio/$provider-$number",
+                pipeId = "watch/$provider/${media.id}/$audio/$provider-$number",
                 number = number.toDouble(),
-                title = "Episode $number",
+                title = meta[number]?.title ?: "Episode $number",
                 image = null,
-                filler = false,
+                filler = meta[number]?.filler ?: false,
             )
         }
+    }
 
     private suspend fun providerAvailability(provider: String, media: Media, count: Int): EpisodeAvailability = when (provider) {
+        "senshi" -> senshi.episodeAvailability(media)
+        "anibd" -> aniBd.episodeAvailability(media)
         "anikoto" -> anikotoAvailability(media, count)
         "allanime" -> allAnime.episodeAvailability(media)
         "animekai" -> animeKai.episodeAvailability(media)

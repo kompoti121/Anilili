@@ -18,10 +18,14 @@ object ProviderCatalog {
 
     // Anivexa providers we query (reliable, self-hosted sources).
     val anivexaProviders = listOf(
-        "anikoto", "allanime", "animekai", "reanime", "anizone", "animegg", "anineko", "2dhive",
+        "senshi", "anibd", "anikoto", "allanime", "animekai", "reanime", "anizone", "animegg", "anineko", "2dhive",
     )
 
-    private val order = miruroOrder + anivexaProviders
+    // Default row order: bonk (Miruro pipe) then anibd (Anivexa) lead as the two default
+    // sources — independent backends, both fast and reliable — with senshi right behind.
+    // A user's saved favourite provider always overrides this order.
+    private val leaders = listOf("bonk", "anibd", "senshi")
+    private val order = leaders + (miruroOrder + anivexaProviders).filterNot { it in leaders }
 
     fun sourceOf(provider: String): Source =
         if (provider in anivexaProviders) Source.ANIVEXA else Source.MIRURO
@@ -34,6 +38,7 @@ object ProviderCatalog {
         order.indexOf(provider).let { if (it >= 0) it else Int.MAX_VALUE }
 
     fun label(provider: String): String = when (provider) {
+        "anibd" -> "AniBD"
         "2dhive" -> "2Dhive"
         "allanime" -> "AllAnime"
         "animekai" -> "AnimeKai"
