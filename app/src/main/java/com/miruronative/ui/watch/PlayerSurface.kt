@@ -14,15 +14,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -99,7 +101,6 @@ import com.miruronative.ui.components.CaptionAppearanceDialog
 import com.miruronative.ui.nav.Routes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlin.math.abs
 
 /**
  * Same as media3's MediaRouteButtonViewProvider, but inflates the MediaRouteButton with an
@@ -230,9 +231,11 @@ fun PlayerSurface(
     hasNextEpisode: Boolean = true,
     hasPreviousEpisode: Boolean = true,
     focusPlayerOnStart: Boolean = true,
+    isFullscreen: Boolean = false,
 ) {
     val context = LocalContext.current
     val device = LocalAppDeviceProfile.current
+    DisposableEffect(Unit) { onDispose { resetPlayerBrightness(context) } }
     val controllerFuture = remember(context) {
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         MediaController.Builder(context, token).buildAsync()
@@ -465,6 +468,17 @@ fun PlayerSurface(
     }
     var settingsExpanded by remember { mutableStateOf(false) }
     var captionAppearanceVisible by remember { mutableStateOf(false) }
+    // Phone draws its own Compose controls (Media3's controller is disabled below); TV keeps
+    // TvPlayerControls. Visible on load, then auto-hidden a few seconds into playback.
+    var phoneControlsVisible by remember { mutableStateOf(true) }
+    var phoneControlsInteraction by remember { mutableIntStateOf(0) }
+    var contentScale by remember { mutableStateOf(PlayerContentScale.FIT) }
+    val trackNameProvider = remember(context) { DefaultTrackNameProvider(context.resources) }
+    LaunchedEffect(phoneControlsVisible, phoneControlsInteraction, playbackIsPlaying, device.isTv) {
+        if (device.isTv || !phoneControlsVisible || !playbackIsPlaying) return@LaunchedEffect
+        delay(4_000)
+        phoneControlsVisible = false
+    }
     val captionStyle by SettingsStore.captionStyle.collectAsState()
     var pinnedVideoHeight by remember(controller, stream.url) { mutableStateOf<Int?>(null) }
     var seekFlash by remember { mutableIntStateOf(0) } // -10 / +10, 0 = hidden
@@ -540,7 +554,9 @@ fun PlayerSurface(
                 PlayerView(ctx).apply {
                     player = playerControls
                     setMediaRouteButtonViewProvider(mediaRouteButtonViewProvider)
-                    useController = !device.isTv
+                    // Phone and TV both draw their own controls (Compose bar / TvPlayerControls),
+                    // so Media3's built-in controller is off everywhere.
+                    useController = false
                     keepScreenOn = true
                     isFocusable = !device.isTv
                     isFocusableInTouchMode = !device.isTv
@@ -601,29 +617,89 @@ fun PlayerSurface(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // On-screen seeking: with the controller hidden, single tap summons it and a double tap
-        // on either half of the screen seeks ±10 s without going through the controller.
-        if (!controllerVisible && controller != null && !device.isTv) {
+        // Phone controls, hidden: the gesture layer owns the surface — tap shows the controls, a
+        // vertical drag on the left half scrubs brightness / right half volume, a double tap seeks
+        // ±10 s. (TV uses TvPlayerControls instead.)
+        if (controller != null && !device.isTv && !phoneControlsVisible) {
+            PlayerGestureControls(
+                onTap = {
+                    phoneControlsVisible = true
+                    phoneControlsInteraction++
+                },
+                onDoubleTap = { isRightHalf ->
+                    val active = controller ?: return@PlayerGestureControls
+                    if (isRightHalf) {
+                        active.seekForward()
+                        seekFlash = +10
+                    } else {
+                        active.seekBack()
+                        seekFlash = -10
+                    }
+                    seekFlashTick++
+                },
+            )
+        }
+
+        // Phone controls, shown: the shared control bar (identical to the embed player) over a
+        // full-screen scrim that hides it again on a tap in empty space.
+        if (controller != null && !device.isTv && phoneControlsVisible) {
             Box(
                 Modifier
                     .matchParentSize()
-                    .pointerInput(controller) {
-                        detectTapGestures(
-                            onTap = { playerView?.showController() },
-                            onDoubleTap = { offset ->
-                                val active = controller ?: return@detectTapGestures
-                                if (offset.x < size.width / 2f) {
-                                    active.seekBack()
-                                    seekFlash = -10
-                                } else {
-                                    active.seekForward()
-                                    seekFlash = +10
-                                }
-                                seekFlashTick++
-                            },
-                        )
-                    },
+                    .pointerInput(Unit) { detectTapGestures { phoneControlsVisible = false } },
             )
+            PlayerControlsScaffold(
+                isPlaying = playbackIsPlaying,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                hasPrevious = canGoPrevious,
+                hasNext = hasNextEpisode,
+                onPrevious = { currentOnPreviousEpisode?.invoke() },
+                onRewind = {
+                    controller?.seekBack()
+                    phoneControlsInteraction++
+                },
+                onPlayPause = {
+                    controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                    phoneControlsInteraction++
+                },
+                onForward = {
+                    controller?.seekForward()
+                    phoneControlsInteraction++
+                },
+                onNext = { currentOnNextEpisode() },
+                onSeek = { target ->
+                    controller?.seekTo(target)
+                    phoneControlsInteraction++
+                },
+                onInteract = { phoneControlsInteraction++ },
+            ) {
+                PlayerControlIconButton(
+                    "Subtitles",
+                    Icons.Default.ClosedCaption,
+                    onClick = {
+                        controller?.let { toggleSubtitles(it, trackNameProvider) }
+                        phoneControlsInteraction++
+                    },
+                )
+                CastButton(Modifier.size(48.dp))
+                PlayerControlIconButton(
+                    if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                    if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                    onClick = {
+                        onToggleFullscreen?.invoke()
+                        phoneControlsInteraction++
+                    },
+                )
+                PlayerControlIconButton(
+                    "Settings",
+                    Icons.Default.Settings,
+                    onClick = {
+                        settingsExpanded = true
+                        phoneControlsInteraction++
+                    },
+                )
+            }
         }
 
         if (seekFlash != 0) {
@@ -639,14 +715,9 @@ fun PlayerSurface(
             )
         }
 
-        PlaybackSettingsMenu(
-            controller = controller,
-            expanded = settingsExpanded,
-            onDismiss = { settingsExpanded = false },
-            pinnedVideoHeight = pinnedVideoHeight,
-            sourceVideoHeights = nativeQualityStreams.mapNotNull(StreamItem::declaredVideoHeight),
-            onVideoHeightChange = { height ->
-                val activeController = controller ?: return@PlaybackSettingsMenu false
+        if (settingsExpanded && controller != null) {
+            val activeController = controller!!
+            val changeVideoHeight: (Int?) -> Boolean = { height ->
                 val applied = when {
                     height == null -> {
                         clearVideoSelection(activeController)
@@ -659,13 +730,9 @@ fun PlayerSurface(
                     }
                     activeController.hasVideoHeight(height) -> applyVideoHeight(activeController, height)
                     else -> {
-                        val source = nativeQualityStreams.firstOrNull {
-                            it.declaredVideoHeight() == height
-                        }
+                        val source = nativeQualityStreams.firstOrNull { it.declaredVideoHeight() == height }
                         if (source == null) {
-                            DiagnosticsLog.event(
-                                "PlayerSurface quality selection rejected height=$height unavailable",
-                            )
+                            DiagnosticsLog.event("PlayerSurface quality selection rejected height=$height unavailable")
                             false
                         } else {
                             clearVideoSelection(activeController)
@@ -679,17 +746,77 @@ fun PlayerSurface(
                         }
                     }
                 }
-                applied.also {
-                    if (applied) pinnedVideoHeight = height
+                if (applied) pinnedVideoHeight = height
+                applied
+            }
+            val trackHeights = (
+                activeController.currentTracks.groups
+                    .filter { it.type == C.TRACK_TYPE_VIDEO && it.isSupported }
+                    .flatMap { group ->
+                        (0 until group.length).filter(group::isTrackSupported)
+                            .map { group.getTrackFormat(it).height }
+                    }
+                    .filter { it > 0 } + nativeQualityStreams.mapNotNull(StreamItem::declaredVideoHeight)
+                ).distinct().sortedDescending()
+            val qualityOptions = buildList {
+                add(PlayerQualityOption("Auto", pinnedVideoHeight == null) { changeVideoHeight(null) })
+                trackHeights.forEach { height ->
+                    add(PlayerQualityOption("${height}p", pinnedVideoHeight == height) { changeVideoHeight(height) })
                 }
-            },
-            autoSkipIntroOutro = autoSkipIntroOutro,
-            onAutoSkipIntroOutroChange = SettingsStore::setAutoSkipIntroOutro,
-            onOpenCaptionAppearance = {
-                settingsExpanded = false
-                captionAppearanceVisible = true
-            },
-        )
+            }
+            val audioTracks = trackOptions(activeController, trackNameProvider, C.TRACK_TYPE_AUDIO)
+            val hasAudioOverride = activeController.hasTrackOverride(C.TRACK_TYPE_AUDIO)
+            val audioOptions = if (audioTracks.size > 1) {
+                buildList {
+                    add(PlayerQualityOption("Auto", !hasAudioOverride) { applyAudioTrack(activeController, null) })
+                    audioTracks.forEach { track ->
+                        add(PlayerQualityOption(track.name, hasAudioOverride && track.selected) {
+                            applyAudioTrack(activeController, track)
+                        })
+                    }
+                }
+            } else {
+                emptyList()
+            }
+            val subtitleTracks = trackOptions(activeController, trackNameProvider, C.TRACK_TYPE_TEXT)
+            val subtitleOptions = if (subtitleTracks.isNotEmpty()) {
+                buildList {
+                    add(PlayerQualityOption("Off", subtitleTracks.none { it.selected }) {
+                        applyTextTrack(activeController, null)
+                    })
+                    subtitleTracks.forEach { track ->
+                        add(PlayerQualityOption(track.name, track.selected) { applyTextTrack(activeController, track) })
+                    }
+                }
+            } else {
+                emptyList()
+            }
+            PlayerSettingsSheet(
+                onDismiss = { settingsExpanded = false },
+                autoplay = autoplay,
+                onAutoplayChange = SettingsStore::setAutoplay,
+                speed = activeController.playbackParameters.speed,
+                onSpeedChange = { activeController.setPlaybackSpeed(it) },
+                qualityOptions = qualityOptions,
+                subtitleOptions = subtitleOptions,
+                audioOptions = audioOptions,
+                contentScale = contentScale,
+                onContentScaleChange = { scale ->
+                    contentScale = scale
+                    playerView?.resizeMode = when (scale) {
+                        PlayerContentScale.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        PlayerContentScale.CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        PlayerContentScale.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    }
+                },
+                onCaptionAppearance = {
+                    settingsExpanded = false
+                    captionAppearanceVisible = true
+                },
+                autoSkip = autoSkipIntroOutro,
+                onAutoSkipChange = SettingsStore::setAutoSkipIntroOutro,
+            )
+        }
 
         if (captionAppearanceVisible) {
             CaptionAppearanceDialog(onDismiss = { captionAppearanceVisible = false })
@@ -772,7 +899,7 @@ fun PlayerSurface(
             }
         }
         action?.let { (label, onClick) ->
-            val controlsVisible = if (device.isTv) tvControlsVisible else controllerVisible
+            val controlsVisible = if (device.isTv) tvControlsVisible else phoneControlsVisible
             val actionModifier = if (controlsVisible) {
                 Modifier.align(Alignment.TopCenter).padding(top = 16.dp)
             } else {
@@ -799,166 +926,33 @@ fun PlayerSurface(
     }
 }
 
-/** Unified settings opened from Media3's built-in settings button. */
+/** Quick subtitle on/off for the control bar's CC button; full track choice lives in the sheet. */
 @OptIn(UnstableApi::class)
-@Composable
-private fun PlaybackSettingsMenu(
-    controller: MediaController?,
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    pinnedVideoHeight: Int?,
-    sourceVideoHeights: List<Int>,
-    onVideoHeightChange: (Int?) -> Boolean,
-    autoSkipIntroOutro: Boolean,
-    onAutoSkipIntroOutroChange: (Boolean) -> Unit,
-    onOpenCaptionAppearance: () -> Unit,
-) {
-    if (controller == null || !expanded) return
-    val context = LocalContext.current
-    val trackNameProvider = remember(context) { DefaultTrackNameProvider(context.resources) }
-
-    // A dialog rather than an anchored DropdownMenu: dialogs get reliable D-pad focus on TV,
-    // where this menu is the only way to pick quality, subtitles, and audio tracks.
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Playback settings") },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Close") }
-        },
-        text = {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-            val heights = (controller.currentTracks.groups
-                .filter { it.type == C.TRACK_TYPE_VIDEO && it.isSupported }
-                .flatMap { group ->
-                    (0 until group.length)
-                        .filter(group::isTrackSupported)
-                        .map { group.getTrackFormat(it).height }
-                }
-                .filter { it > 0 } + sourceVideoHeights)
-                .distinct()
-                .sortedDescending()
-            SectionLabel("Quality")
-            DropdownMenuItem(
-                text = { Text(if (pinnedVideoHeight == null) "Auto ✓" else "Auto") },
-                onClick = {
-                    if (onVideoHeightChange(null)) onDismiss()
-                },
-            )
-            heights.forEach { height ->
-                DropdownMenuItem(
-                    text = { Text(if (pinnedVideoHeight == height) "${height}p ✓" else "${height}p") },
-                    onClick = {
-                        if (onVideoHeightChange(height)) onDismiss()
-                    },
-                )
-            }
-            if (heights.isEmpty()) {
-                DropdownMenuItem(text = { Text("Only one quality available") }, onClick = onDismiss)
-            }
-
-            val subtitleTracks = trackOptions(controller, trackNameProvider, C.TRACK_TYPE_TEXT)
-            if (subtitleTracks.isNotEmpty()) {
-                HorizontalDivider()
-                SectionLabel("Subtitles")
-                val subtitlesOff = subtitleTracks.none { it.selected }
-                DropdownMenuItem(
-                    text = { Text(if (subtitlesOff) "Off ✓" else "Off") },
-                    onClick = {
-                        applyTextTrack(controller, null)
-                        onDismiss()
-                    },
-                )
-                subtitleTracks.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text("${option.name}${if (option.selected) " ✓" else ""}") },
-                        onClick = {
-                            applyTextTrack(controller, option)
-                            onDismiss()
-                        },
-                    )
-                }
-            }
-
-            val audioTracks = trackOptions(controller, trackNameProvider, C.TRACK_TYPE_AUDIO)
-            if (audioTracks.isNotEmpty()) {
-                val hasAudioOverride = controller.hasTrackOverride(C.TRACK_TYPE_AUDIO)
-                val automaticTrack = audioTracks.firstOrNull(TrackOption::selected)?.name
-                HorizontalDivider()
-                SectionLabel("Audio")
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (hasAudioOverride) {
-                                "Auto"
-                            } else {
-                                "Auto${automaticTrack?.let { " ($it)" }.orEmpty()} ✓"
-                            },
-                        )
-                    },
-                    onClick = {
-                        applyAudioTrack(controller, null)
-                        onDismiss()
-                    },
-                )
-                audioTracks.forEach { option ->
-                    DropdownMenuItem(
-                        text = {
-                            Text("${option.name}${if (hasAudioOverride && option.selected) " ✓" else ""}")
-                        },
-                        onClick = {
-                            applyAudioTrack(controller, option)
-                            onDismiss()
-                        },
-                    )
-                }
-            }
-
-            HorizontalDivider()
-            SectionLabel("Captions")
-            DropdownMenuItem(
-                text = { Text("Caption appearance…") },
-                onClick = onOpenCaptionAppearance,
-            )
-
-            HorizontalDivider()
-            SectionLabel("Skipping")
-            DropdownMenuItem(
-                text = { Text("Auto-skip intro/outro${if (autoSkipIntroOutro) " ✓" else ""}") },
-                onClick = {
-                    onAutoSkipIntroOutroChange(!autoSkipIntroOutro)
-                    onDismiss()
-                },
-            )
-
-            HorizontalDivider()
-            SectionLabel("Playback speed")
-            PlaybackSpeeds.forEach { speed ->
-                val selected = abs(controller.playbackParameters.speed - speed) < 0.01f
-                DropdownMenuItem(
-                    text = { Text("${speed.formatPlaybackSpeed()}${if (selected) " ✓" else ""}") },
-                    onClick = {
-                        controller.setPlaybackSpeed(speed)
-                        onDismiss()
-                    },
-                )
-            }
-            }
-        },
-    )
+private fun toggleSubtitles(controller: MediaController, trackNameProvider: DefaultTrackNameProvider) {
+    val tracks = trackOptions(controller, trackNameProvider, C.TRACK_TYPE_TEXT)
+    if (tracks.isEmpty()) return
+    if (tracks.any { it.selected }) applyTextTrack(controller, null)
+    else applyTextTrack(controller, tracks.first())
 }
 
+/**
+ * The Cast button as a Compose element. Media3's own controller is off, so we inflate the
+ * MediaRouteButton ourselves (with the AppCompat-derived theme its dialogs require) and place it
+ * in the custom control bar.
+ */
+@OptIn(UnstableApi::class)
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        color = MaterialTheme.colorScheme.primary,
-        style = MaterialTheme.typography.labelMedium,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+private fun CastButton(modifier: Modifier = Modifier) {
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            val themed = ContextThemeWrapper(ctx, R.style.Theme_MiruroNative_MediaRouter)
+            val button = LayoutInflater.from(themed)
+                .inflate(androidx.media3.cast.R.layout.media_route_button_view, null, false) as MediaRouteButton
+            button.setDialogFactory(ThemedMediaRouteDialogFactory())
+            runCatching { MediaRouteButtonFactory.setUpMediaRouteButton(ctx, button) }
+            button
+        },
     )
 }
 

@@ -115,7 +115,9 @@ fun EmbedWebView(
     onPlaybackError: ((message: String, streamUrl: String, positionMs: Long) -> Unit)? = null,
 ) {
     val device = LocalAppDeviceProfile.current
-    val lifecycleOwner = LocalContext.current.findLifecycleOwner()
+    val context = LocalContext.current
+    val lifecycleOwner = context.findLifecycleOwner()
+    DisposableEffect(Unit) { onDispose { resetPlayerBrightness(context) } }
     val embedQualityStreams = remember(url, qualityStreams) {
         qualityStreams
             .filter(StreamItem::isEmbed)
@@ -129,6 +131,7 @@ fun EmbedWebView(
     var qualityDialogVisible by remember(url) { mutableStateOf(false) }
     var speedDialogVisible by remember(url) { mutableStateOf(false) }
     var captionAppearanceVisible by remember(url) { mutableStateOf(false) }
+    var settingsSheetVisible by remember(url) { mutableStateOf(false) }
     var playbackSpeed by remember(url) { mutableStateOf(1f) }
     var webPlaybackAvailable by remember(activeUrl) { mutableStateOf(false) }
     var pendingSeekMs by remember(url, startPositionMs) { mutableLongStateOf(startPositionMs) }
@@ -155,6 +158,8 @@ fun EmbedWebView(
     var lastAudibleVolume by remember(url) { mutableStateOf(1f) }
     var tvControlsVisible by remember(url) { mutableStateOf(false) }
     var tvControlsInteraction by remember(url) { mutableIntStateOf(0) }
+    var touchControlsVisible by remember(url) { mutableStateOf(true) }
+    var touchControlsInteraction by remember(url) { mutableIntStateOf(0) }
     val tvPlayPauseFocus = remember { FocusRequester() }
     val currentActiveUrl by rememberUpdatedState(activeUrl)
     val currentPositionMs by rememberUpdatedState(positionMs)
@@ -168,6 +173,16 @@ fun EmbedWebView(
     val outroEndMs = skip?.outroEnd?.times(1000)?.toLong()
     var introAutoSkipped by remember(activeUrl, introStartMs, introEndMs) { mutableStateOf(false) }
     var outroAutoHandled by remember(activeUrl, outroStartMs, outroEndMs) { mutableStateOf(false) }
+
+    // Our own touch controls take over whenever the injected JS can reach the <video>; a
+    // cross-origin embed is untouchable, so the provider's UI stays in charge there.
+    val touchControlsActive = !device.isTv && webPlaybackAvailable && loadError == null
+
+    LaunchedEffect(touchControlsActive, touchControlsVisible, touchControlsInteraction, webIsPlaying) {
+        if (!touchControlsActive || !touchControlsVisible || !webIsPlaying) return@LaunchedEffect
+        delay(4_000)
+        touchControlsVisible = false
+    }
 
     LaunchedEffect(tvControlsVisible, focusPlayerOnStart) {
         if (!tvControlsVisible || !focusPlayerOnStart) return@LaunchedEffect
@@ -619,11 +634,83 @@ fun EmbedWebView(
             }
         }
 
-        // Sits above the embed's own control bar rather than over the picture. The inset clears a
-        // typical bar: these are the provider's controls inside the WebView, so there is no real
-        // height to measure, and landing on their scrubber would be worse than floating a little
-        // high when they hide.
-        if (!device.isTv) Row(
+        // Swallows every touch so the page never sees one: web players only raise their control
+        // chrome on interaction, so starving them of taps keeps the provider UI hidden and lets
+        // our overlay be the only controls. Also neuters tap-hijack ads, which need a real click.
+        // A vertical drag on the left half scrubs brightness, on the right half volume.
+        if (touchControlsActive) PlayerGestureControls(
+            onTap = {
+                touchControlsVisible = !touchControlsVisible
+                touchControlsInteraction++
+            },
+        )
+
+        if (touchControlsActive && touchControlsVisible) {
+            EmbedTouchControls(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                isPlaying = webIsPlaying,
+                hasPrevious = hasPreviousEpisode && currentOnPreviousEpisode != null,
+                hasNext = hasNextEpisode && currentOnNextEpisode != null,
+                onPrevious = { currentOnPreviousEpisode?.invoke() },
+                onRewind = {
+                    seekWebVideo(webView, (positionMs - 10_000L).coerceAtLeast(0L))
+                    touchControlsInteraction++
+                },
+                onPlayPause = {
+                    DiagnosticsLog.event("EmbedWebView touch control playPause")
+                    webView?.evaluateJavascript(REMOTE_TOGGLE_PLAYBACK_JS, null)
+                    webIsPlaying = !webIsPlaying
+                    touchControlsInteraction++
+                },
+                onForward = {
+                    seekWebVideo(webView, positionMs + 10_000L)
+                    touchControlsInteraction++
+                },
+                onNext = { currentOnNextEpisode?.invoke() },
+                onSeek = { targetMs ->
+                    seekWebVideo(webView, targetMs)
+                    positionMs = targetMs // the poll confirms next tick; without this the thumb snaps back first
+                    touchControlsInteraction++
+                },
+                onSettings = { settingsSheetVisible = true },
+                onInteract = { touchControlsInteraction++ },
+            )
+        }
+
+        if (settingsSheetVisible) {
+            PlayerSettingsSheet(
+                onDismiss = { settingsSheetVisible = false },
+                autoplay = autoplay,
+                onAutoplayChange = SettingsStore::setAutoplay,
+                speed = if (webPlaybackAvailable) playbackSpeed else null,
+                onSpeedChange = { playbackSpeed = it },
+                qualityOptions = embedQualityStreams.mapNotNull { option ->
+                    val height = option.height ?: declaredVideoHeight(option.quality) ?: return@mapNotNull null
+                    PlayerQualityOption(
+                        label = "${height}p",
+                        selected = option.url == activeUrl,
+                        onSelect = {
+                            pendingSeekMs = positionMs
+                            activeUrl = option.url
+                        },
+                    )
+                },
+                onCaptionAppearance = if (webPlaybackAvailable) {
+                    { captionAppearanceVisible = true }
+                } else {
+                    null
+                },
+                autoSkip = autoSkipIntroOutro,
+                onAutoSkipChange = SettingsStore::setAutoSkipIntroOutro,
+            )
+        }
+
+        // Fallback for embeds our JS cannot reach (cross-origin iframe): the provider's own UI
+        // stays in charge, and this row only adds what the page cannot know about. Sits above
+        // the embed's control bar rather than over the picture; the inset clears a typical bar,
+        // since there is no real height to measure from here.
+        if (!device.isTv && !webPlaybackAvailable) Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 72.dp)

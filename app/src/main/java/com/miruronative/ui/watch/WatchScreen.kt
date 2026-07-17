@@ -385,6 +385,7 @@ private fun WatchContent(
                         hasNextEpisode = data.hasNext,
                         hasPreviousEpisode = data.hasPrev,
                         focusPlayerOnStart = fullscreen,
+                        isFullscreen = fullscreen,
                     )
                 }
             }
