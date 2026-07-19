@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,14 +21,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -35,14 +42,22 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,20 +66,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -74,10 +91,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.miruronative.data.ProviderCatalog
+import com.miruronative.data.library.LibraryStore
+import com.miruronative.data.library.WatchlistEntry
 import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.StreamItem
 import com.miruronative.diagnostics.DiagnosticsLog
@@ -88,6 +109,8 @@ import com.miruronative.ui.components.LoadingBox
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun WatchScreen(
@@ -105,6 +128,7 @@ fun WatchScreen(
         vm.start(animeId, provider, category, episode)
     }
     val state by vm.state.collectAsState()
+    val watchlist by LibraryStore.watchlist.collectAsState()
     val context = LocalContext.current
     val device = LocalAppDeviceProfile.current
     var webFallback by remember { mutableStateOf(false) }
@@ -230,24 +254,39 @@ fun WatchScreen(
                 ) { Text("Open in web player") }
                 BackButton(pauseAndBack, Modifier.align(Alignment.Start))
             }
-            is UiState.Success -> WatchContent(
-                data = s.data,
-                fullscreen = fullscreen || inPictureInPicture,
-                onBack = pauseAndBack,
-                onPrev = vm::prev,
-                onNext = vm::next,
-                onChangeSource = vm::changeSource,
-                onChangeCategory = vm::changeCategory,
-                onSelectEpisode = { index ->
-                    if (device.isTv) fullscreen = true
-                    vm.playIndex(index)
-                },
-                onWebFallback = { webFallback = true },
-                onToggleFullscreen = { fullscreen = !fullscreen },
-                onFullscreenChanged = { fullscreen = it },
-                onProgress = vm::onProgress,
-                onPlaybackError = vm::onPlaybackError,
-            )
+            is UiState.Success -> {
+                val saved = watchlist.any { it.anilistId == s.data.anilistId }
+                WatchContent(
+                    data = s.data,
+                    fullscreen = fullscreen || inPictureInPicture,
+                    saved = saved,
+                    onToggleSaved = {
+                        LibraryStore.toggleWatchlist(
+                            WatchlistEntry(
+                                anilistId = s.data.anilistId,
+                                title = s.data.seriesTitle,
+                                cover = s.data.artworkUrl,
+                                format = s.data.seriesFormat,
+                                averageScore = s.data.averageScore,
+                            ),
+                        )
+                    },
+                    onBack = pauseAndBack,
+                    onPrev = vm::prev,
+                    onNext = vm::next,
+                    onChangeSource = vm::changeSource,
+                    onChangeCategory = vm::changeCategory,
+                    onSelectEpisode = { index ->
+                        if (device.isTv) fullscreen = true
+                        vm.playIndex(index)
+                    },
+                    onWebFallback = { webFallback = true },
+                    onToggleFullscreen = { fullscreen = !fullscreen },
+                    onFullscreenChanged = { fullscreen = it },
+                    onProgress = vm::onProgress,
+                    onPlaybackError = vm::onPlaybackError,
+                )
+            }
         }
     }
 }
@@ -256,6 +295,8 @@ fun WatchScreen(
 private fun WatchContent(
     data: WatchData,
     fullscreen: Boolean,
+    saved: Boolean,
+    onToggleSaved: () -> Unit,
     onBack: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
@@ -270,17 +311,39 @@ private fun WatchContent(
 ) {
     val device = LocalAppDeviceProfile.current
     val configuration = LocalConfiguration.current
-    val listFocus = remember { FocusRequester() }
+    val summaryFocus = remember { FocusRequester() }
+    val sourceFocus = remember { FocusRequester() }
+    val tvEpisodeListState = rememberLazyListState()
+    var hasShownFullscreen by remember { mutableStateOf(fullscreen) }
 
     // TV: leaving fullscreen must hand focus to the episode/source area — otherwise it can
     // stay inside the player (or an embed WebView) and the D-pad never reaches the list.
     LaunchedEffect(fullscreen) {
-        if (device.isTv && !fullscreen) {
-            // Wait until the non-fullscreen controls have been measured before requesting focus.
-            delay(120)
-            runCatching { listFocus.requestFocus() }
+        if (fullscreen) {
+            hasShownFullscreen = true
+        } else if (device.isTv) {
+            // Start the remote in the episode summary, and return it there after fullscreen.
+            // This avoids Android player views becoming a second, invisible D-pad focus owner.
+            delay(if (hasShownFullscreen) 180 else 950)
+            runCatching { summaryFocus.requestFocus() }
                 .onSuccess { DiagnosticsLog.event("Watch TV selector focus requested") }
                 .onFailure { DiagnosticsLog.throwable("Watch TV selector focus failed", it) }
+        }
+    }
+
+    LaunchedEffect(data.currentIndex, fullscreen, device.isTv) {
+        if (device.isTv && !fullscreen) {
+            // Native player focus can briefly bring a lower control into view during load.
+            // Restore the summary as the visual anchor once that handoff settles.
+            val returningFromFullscreen = hasShownFullscreen
+            delay(if (returningFromFullscreen) 260 else 850)
+            tvEpisodeListState.scrollToItem(0)
+            if (!returningFromFullscreen) {
+                // The initial summary focus request lands just after the first reset; undo the
+                // small bring-into-view offset it can apply to the title line.
+                delay(300)
+                tvEpisodeListState.scrollToItem(0)
+            }
         }
     }
 
@@ -291,7 +354,7 @@ private fun WatchContent(
             val naturalHeightDp = configuration.screenWidthDp * 9f / 16f
             val landscape = configuration.screenWidthDp > configuration.screenHeightDp
             val maxHeightFraction = when {
-                device.isTv -> 0.62f
+                device.isTv -> 0.56f
                 landscape -> 0.66f
                 else -> 1f
             }
@@ -301,32 +364,12 @@ private fun WatchContent(
             )
             Modifier.fillMaxWidth().height(playerHeightDp.dp)
         }
-        // TV, grid view: the player itself is the D-pad target, so Up from the selectors reaches
-        // it and Center opens it fullscreen (where the remote controls already live). The focus
-        // holder is this Compose box, never the player surface: an embed WebView that can take
-        // focus autofocuses on page load and traps the D-pad inside the embed's own HTML.
+        // In the TV grid the Android player/WebView must not join the Compose focus graph: some
+        // embeds retain native focus even after the ring moves, producing two remote owners.
+        // Fullscreen remains available as an explicit selector below the summary.
         val playerFocusModifier = if (device.isTv && !fullscreen) {
             Modifier
-                .focusHighlight(RoundedCornerShape(6.dp))
-                .onPreviewKeyEvent { event ->
-                    val enters = event.key == Key.DirectionCenter || event.key == Key.Enter
-                    if (event.type == KeyEventType.KeyDown && enters) {
-                        onToggleFullscreen()
-                        true
-                    } else {
-                        false
-                    }
-                }
-                // Screen readers consume the D-pad, so the key handler above never fires under
-                // TalkBack; this semantic action is the accessible way into the fullscreen player.
-                .semantics {
-                    contentDescription = "Video player"
-                    onClick(label = "Open fullscreen player") {
-                        onToggleFullscreen()
-                        true
-                    }
-                }
-                .focusable()
+                .semantics { contentDescription = "Video player" }
         } else {
             Modifier
         }
@@ -334,6 +377,19 @@ private fun WatchContent(
             val stream = data.chosenStream
             key(data.provider, data.category, data.current.number, stream?.url, data.playbackGeneration) {
                 when {
+                    device.isTv && !fullscreen -> {
+                        // Keep native PlayerView/WebView focus out of the TV episode grid. The
+                        // explicit Fullscreen pill below creates the player when the user asks.
+                        LaunchedEffect(stream?.url) { PlaybackService.stopActivePlayback() }
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(54.dp),
+                            )
+                        }
+                    }
                     stream == null -> NoSource(onWebFallback)
                     stream.isEmbed || ProviderCatalog.isEmbed(data.provider) ->
                         Box(Modifier.fillMaxSize()) {
@@ -366,6 +422,7 @@ private fun WatchContent(
                                 onClick = onToggleFullscreen,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
+                                    .focusProperties { canFocus = !device.isTv || fullscreen }
                                     .statusBarsPadding()
                                     .padding(4.dp)
                                     .focusHighlight(RoundedCornerShape(24.dp)),
@@ -418,44 +475,51 @@ private fun WatchContent(
 
         if (fullscreen) return
 
+        if (!device.isTv) {
+            MobileWatchDetails(
+                data = data,
+                saved = saved,
+                onToggleSaved = onToggleSaved,
+                focusRequester = sourceFocus,
+                onPrev = onPrev,
+                onNext = onNext,
+                onChangeSource = onChangeSource,
+                onChangeCategory = onChangeCategory,
+                onSelectEpisode = onSelectEpisode,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            )
+            return@Column
+        }
+
         val episodeRows = remember(data.episodes, device.episodeColumns) {
             data.episodes.withIndex().chunked(device.episodeColumns)
         }
-        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            state = tvEpisodeListState,
+        ) {
             item {
-                Row(
-                    Modifier
-                        .padding(
-                            start = device.pagePadding,
-                            end = device.pagePadding,
-                            top = 14.dp,
-                            bottom = 8.dp,
-                        )
-                        .fillMaxWidth()
-                        .focusGroup(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "Episodes",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = "Episode ${data.current.displayNumber}" +
-                                (data.current.title?.let { ": $it" } ?: ""),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+                WatchEpisodeSummary(
+                    data = data,
+                    saved = saved,
+                    onToggleSaved = onToggleSaved,
+                    focusRequester = summaryFocus,
+                    nextFocusRequester = sourceFocus,
+                    modifier = Modifier.padding(
+                        start = device.pagePadding,
+                        end = device.pagePadding,
+                        top = 12.dp,
+                        bottom = 6.dp,
+                    ),
+                )
+            }
+            item {
                 SourceSelectors(
                     data = data,
                     onChangeSource = onChangeSource,
                     onChangeCategory = onChangeCategory,
-                    focusRequester = listFocus,
+                    focusRequester = sourceFocus,
+                    onToggleFullscreen = onToggleFullscreen,
                 )
                 data.notice?.let { notice ->
                     Text(
@@ -491,25 +555,417 @@ private fun WatchContent(
     }
 }
 
+@Composable
+private fun WatchEpisodeSummary(
+    data: WatchData,
+    saved: Boolean,
+    onToggleSaved: () -> Unit,
+    focusRequester: FocusRequester? = null,
+    nextFocusRequester: FocusRequester? = null,
+    modifier: Modifier = Modifier,
+) {
+    val description = remember(data.anilistId, data.description) {
+        data.description?.cleanAniListDescription().orEmpty()
+    }
+    var descriptionExpanded by remember(data.anilistId, data.current.number) { mutableStateOf(false) }
+    val canExpand = description.length > 180
+    val localMoreFocus = remember { FocusRequester() }
+    val localHeartFocus = remember { FocusRequester() }
+    val moreFocus = if (canExpand) focusRequester ?: localMoreFocus else localMoreFocus
+    val heartFocus = if (!canExpand) focusRequester ?: localHeartFocus else localHeartFocus
+    val focusScope = rememberCoroutineScope()
+    var restoreHeartFocus by remember { mutableStateOf(false) }
+    val toggleSaved = {
+        restoreHeartFocus = nextFocusRequester != null
+        onToggleSaved()
+    }
+
+    LaunchedEffect(saved) {
+        if (restoreHeartFocus) {
+            // LibraryStore publishes a new list after the toggle. Restore the TV target after
+            // that recomposition instead of allowing focus to fall back to the player/back key.
+            delay(60)
+            runCatching { heartFocus.requestFocus() }
+            restoreHeartFocus = false
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth().focusGroup()) {
+        Text(
+            text = data.current.title?.takeIf { it.isNotBlank() }
+                ?: "Episode ${data.current.displayNumber}",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Black,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = buildList {
+                data.averageScore?.let { add("$it% score") }
+                add("Episode ${data.current.displayNumber}")
+            }.joinToString(" · "),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+
+        if (description.isNotBlank()) {
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (descriptionExpanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 7.dp),
+            )
+            if (canExpand) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .focusRequester(moreFocus)
+                        .focusProperties { down = heartFocus }
+                        .onPreviewKeyEvent { event ->
+                            val keyCode = event.nativeKeyEvent.keyCode
+                            if (keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                                keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                                keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+                            ) {
+                                if (event.type == KeyEventType.KeyUp) {
+                                    descriptionExpanded = !descriptionExpanded
+                                }
+                                return@onPreviewKeyEvent true
+                            }
+                            if (keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN) {
+                                if (event.type == KeyEventType.KeyUp) {
+                                    focusScope.launch {
+                                        delay(32)
+                                        heartFocus.requestFocus()
+                                    }
+                                }
+                                return@onPreviewKeyEvent true
+                            }
+                            false
+                        }
+                        .focusHighlight(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(16.dp))
+                        .semantics {
+                            onClick(label = if (descriptionExpanded) "Show less" else "Show more") {
+                                descriptionExpanded = !descriptionExpanded
+                                true
+                            }
+                        }
+                        .pointerInput(descriptionExpanded) {
+                            detectTapGestures { descriptionExpanded = !descriptionExpanded }
+                        }
+                        .focusable()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (descriptionExpanded) "Less" else "More",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = if (description.isBlank()) 10.dp else 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = data.artworkUrl,
+                contentDescription = null,
+                modifier = Modifier.size(44.dp).clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                Text(
+                    text = data.seriesTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                data.popularity?.let { popularity ->
+                    Text(
+                        text = "${compactPopularity(popularity)} popularity",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics {
+                        contentDescription = if (saved) "Remove from list" else "Add to list"
+                        onClick(label = if (saved) "Remove from list" else "Add to list") {
+                            toggleSaved()
+                            true
+                        }
+                    }
+                    .focusRequester(heartFocus)
+                    .focusProperties {
+                        if (canExpand) up = moreFocus
+                        nextFocusRequester?.let { down = it }
+                    }
+                    .onPreviewKeyEvent { event ->
+                        val keyCode = event.nativeKeyEvent.keyCode
+                        if (keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                            keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                            keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+                        ) {
+                            if (event.type == KeyEventType.KeyUp) toggleSaved()
+                            return@onPreviewKeyEvent true
+                        }
+                        when {
+                            keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP && canExpand -> {
+                                if (event.type == KeyEventType.KeyUp) {
+                                    focusScope.launch {
+                                        delay(32)
+                                        moreFocus.requestFocus()
+                                    }
+                                }
+                                true
+                            }
+                            keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN && nextFocusRequester != null -> {
+                                if (event.type == KeyEventType.KeyUp) {
+                                    focusScope.launch {
+                                        delay(32)
+                                        nextFocusRequester.requestFocus()
+                                    }
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    .focusHighlight(CircleShape)
+                    .clip(CircleShape)
+                    .pointerInput(saved) { detectTapGestures { toggleSaved() } }
+                    .focusable(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (saved) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = null,
+                    tint = if (saved) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+
+}
+
+private fun String.cleanAniListDescription(): String =
+    replace(Regex("<[^>]+>"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+private fun compactPopularity(value: Int): String = when {
+    value >= 1_000_000 -> String.format(Locale.US, "%.1fM", value / 1_000_000f)
+    value >= 1_000 -> String.format(Locale.US, "%.1fK", value / 1_000f)
+    else -> value.toString()
+}.replace(".0K", "K").replace(".0M", "M")
+
+@Composable
+private fun MobileWatchDetails(
+    data: WatchData,
+    saved: Boolean,
+    onToggleSaved: () -> Unit,
+    focusRequester: FocusRequester,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onChangeSource: (String, String) -> Unit,
+    onChangeCategory: (String) -> Unit,
+    onSelectEpisode: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pad = LocalAppDeviceProfile.current.pagePadding
+    LazyColumn(modifier = modifier) {
+        item {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                WatchEpisodeSummary(
+                    data = data,
+                    saved = saved,
+                    onToggleSaved = onToggleSaved,
+                    modifier = Modifier.padding(start = pad, end = pad, top = 16.dp, bottom = 4.dp),
+                )
+                Row(
+                    modifier = Modifier.padding(start = pad, end = pad, top = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    WatchNavPill(
+                        label = "Previous",
+                        icon = Icons.Default.SkipPrevious,
+                        enabled = data.hasPrev,
+                        onClick = onPrev,
+                    )
+                    WatchNavPill(
+                        label = "Next",
+                        icon = Icons.Default.SkipNext,
+                        enabled = data.hasNext,
+                        onClick = onNext,
+                    )
+                }
+            }
+            SourceSelectors(
+                data = data,
+                onChangeSource = onChangeSource,
+                onChangeCategory = onChangeCategory,
+                focusRequester = focusRequester,
+            )
+            data.notice?.let { notice ->
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = pad, vertical = 5.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = pad, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Episodes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "  ${data.episodes.size}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        itemsIndexed(data.episodes, key = { _, item -> item.pipeId }) { index, episode ->
+            MobileEpisodeRow(
+                episode = episode,
+                fallbackImage = data.artworkUrl,
+                selected = index == data.currentIndex,
+                onClick = { onSelectEpisode(index) },
+            )
+        }
+        item { Spacer(Modifier.height(28.dp)) }
+    }
+}
+
+@Composable
+private fun WatchNavPill(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(17.dp),
+            tint = if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.padding(start = 5.dp),
+        )
+    }
+}
+
+@Composable
+private fun MobileEpisodeRow(
+    episode: EpisodeItem,
+    fallbackImage: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = LocalAppDeviceProfile.current.pagePadding, vertical = 5.dp)
+            .focusHighlight(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.surfaceVariant
+                else Color.Transparent,
+            )
+            .clickable(onClick = onClick)
+            .padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box {
+            AsyncImage(
+                model = episode.image ?: fallbackImage,
+                contentDescription = null,
+                modifier = Modifier.width(132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(9.dp)),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+            Text(
+                text = "EP ${episode.displayNumber}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(5.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Color.Black.copy(alpha = 0.78f))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+            )
+        }
+        Column(Modifier.weight(1f).padding(start = 13.dp)) {
+            Text(
+                text = episode.title?.takeIf { it.isNotBlank() } ?: "Episode ${episode.displayNumber}",
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (selected) "Now playing" else "Episode ${episode.displayNumber}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+}
+
 /** Compact server and audio selectors. Choosing a server also makes it the global preference. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SourceSelectors(
     data: WatchData,
     onChangeSource: (String, String) -> Unit,
     onChangeCategory: (String) -> Unit,
     focusRequester: FocusRequester,
+    onToggleFullscreen: (() -> Unit)? = null,
 ) {
     val device = LocalAppDeviceProfile.current
     val servers = remember(data.sourceOptions) { data.sourceOptions.map { it.provider }.distinct() }
     val audioForServer = remember(data.sourceOptions, data.provider) {
         data.sourceOptions.filter { it.provider == data.provider }.map { it.category }.distinct()
     }
-    // While the Anivexa catalog is still loading, list the servers we're still checking so their
-    // absence reads as "loading", not "unavailable".
-    val pendingServers = remember(servers, data.isLoadingMoreSources) {
-        if (data.isLoadingMoreSources) ProviderCatalog.anivexaProviders.filterNot { it in servers } else emptyList()
-    }
     var showServerDialog by remember { mutableStateOf(false) }
+    val mobileSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val tvDialogFocus = remember { FocusRequester() }
+
+    LaunchedEffect(showServerDialog, device.isTv) {
+        if (showServerDialog && device.isTv) {
+            delay(120)
+            runCatching { tvDialogFocus.requestFocus() }
+                .onFailure { DiagnosticsLog.throwable("TV server dialog focus failed", it) }
+        }
+    }
 
     Row(
         Modifier
@@ -527,29 +983,21 @@ private fun SourceSelectors(
             focusRequester = focusRequester,
             onClick = { showServerDialog = true }
         )
-        CompactDropdown(
-            label = data.category.api.uppercase(),
-            enabled = audioForServer.size > 1,
-        ) { dismiss ->
-            audioForServer.forEach { category ->
-                val selected = category == data.category
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            category.api.uppercase(),
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
-                        )
-                    },
-                    trailingIcon = if (selected) {
-                        { Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                    } else null,
-                    onClick = {
-                        dismiss()
-                        if (!selected) onChangeCategory(category.api)
-                    },
-                )
-            }
+        val alternateAudio = audioForServer.firstOrNull { it != data.category }
+        CompactClickablePill(
+            label = if (data.category == com.miruronative.data.model.Category.DUB) "Dub" else "Sub",
+            enabled = alternateAudio != null,
+            active = data.category == com.miruronative.data.model.Category.DUB,
+            showArrow = false,
+            onClick = { alternateAudio?.let { onChangeCategory(it.api) } },
+        )
+        if (device.isTv && onToggleFullscreen != null) {
+            CompactClickablePill(
+                label = "Fullscreen",
+                enabled = true,
+                showArrow = false,
+                onClick = onToggleFullscreen,
+            )
         }
         if (data.isLoadingMoreSources) {
             Row(
@@ -570,18 +1018,62 @@ private fun SourceSelectors(
         }
     }
 
-    if (showServerDialog) {
-        Dialog(onDismissRequest = {
-            showServerDialog = false
-            if (device.isTv) runCatching { focusRequester.requestFocus() }
-        }) {
+    if (showServerDialog && !device.isTv) {
+        ModalBottomSheet(
+            onDismissRequest = { showServerDialog = false },
+            sheetState = mobileSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ) {
+            MobileServerPickerContent(
+                data = data,
+                servers = servers,
+                onSelect = { server ->
+                    showServerDialog = false
+                    if (server != data.provider || server != data.preferredProvider) {
+                        val options = data.sourceOptions.filter { it.provider == server }
+                        val nextCategory = options.firstOrNull { it.category == data.category }?.category
+                            ?: options.first().category
+                        onChangeSource(server, nextCategory.api)
+                    }
+                },
+                onClose = { showServerDialog = false },
+            )
+        }
+    }
+
+    if (showServerDialog && device.isTv) {
+        Dialog(
+            onDismissRequest = {
+                showServerDialog = false
+                if (device.isTv) runCatching { focusRequester.requestFocus() }
+            },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = device.isTv,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = if (device.isTv) 0.dp else 84.dp),
+                contentAlignment = if (device.isTv) Alignment.Center else Alignment.BottomCenter,
+            ) {
             Box(
                 modifier = Modifier
                     .widthIn(max = 440.dp)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(
+                        if (device.isTv) RoundedCornerShape(16.dp)
+                        else RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    )
                     .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        if (device.isTv) RoundedCornerShape(16.dp)
+                        else RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    )
                     .padding(20.dp)
             ) {
                 Column(
@@ -616,13 +1108,6 @@ private fun SourceSelectors(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (pendingServers.isNotEmpty()) {
-                            Text(
-                                text = "Checking more servers…",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                     }
 
                     Column(
@@ -633,28 +1118,54 @@ private fun SourceSelectors(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val columns = if (device.isTv) 4 else 3
-                        // Ready servers first, then the ones we're still checking (spinner cells).
-                        val cells = servers.map { it to true } + pendingServers.map { it to false }
-                        val rows = cells.chunked(columns)
-                        rows.forEach { rowCells ->
+                        val rows = servers.chunked(columns)
+                        rows.forEachIndexed { rowIndex, rowCells ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                rowCells.forEach { (server, ready) ->
-                                    val selected = ready && server == data.provider
-                                    val preferred = ready && server == data.preferredProvider
+                                rowCells.forEachIndexed { columnIndex, server ->
+                                    val selected = server == data.provider
+                                    val preferred = server == data.preferredProvider
                                     val bg = when {
                                         selected -> MaterialTheme.colorScheme.primary
-                                        ready -> MaterialTheme.colorScheme.surfaceVariant
-                                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
                                     }
                                     val textColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    val selectServer = {
+                                        showServerDialog = false
+                                        if (device.isTv) runCatching { focusRequester.requestFocus() }
+                                        if (!selected || !preferred) {
+                                            val options = data.sourceOptions.filter { it.provider == server }
+                                            val category = options.firstOrNull { it.category == data.category }?.category
+                                                ?: options.first().category
+                                            onChangeSource(server, category.api)
+                                        }
+                                    }
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
+                                            .then(
+                                                if (rowIndex == 0 && columnIndex == 0) {
+                                                    Modifier.focusRequester(tvDialogFocus)
+                                                } else {
+                                                    Modifier
+                                                },
+                                            )
                                             .height(44.dp)
-                                            .then(if (ready) Modifier.focusHighlight(RoundedCornerShape(8.dp)) else Modifier)
+                                            .onPreviewKeyEvent { event ->
+                                                val keyCode = event.nativeKeyEvent.keyCode
+                                                val activate = keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                                                    keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                                                    keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+                                                if (!activate) {
+                                                    false
+                                                } else {
+                                                    if (event.type == KeyEventType.KeyUp) selectServer()
+                                                    true
+                                                }
+                                            }
+                                            .focusHighlight(RoundedCornerShape(8.dp))
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(bg)
                                             .border(
@@ -663,65 +1174,29 @@ private fun SourceSelectors(
                                                 else MaterialTheme.colorScheme.outline,
                                                 RoundedCornerShape(8.dp)
                                             )
-                                            .then(
-                                                if (ready) {
-                                                    Modifier.clickable {
-                                                        showServerDialog = false
-                                                        if (device.isTv) runCatching { focusRequester.requestFocus() }
-                                                        if (!selected || !preferred) {
-                                                            val options = data.sourceOptions.filter { it.provider == server }
-                                                            val category = options.firstOrNull { it.category == data.category }?.category
-                                                                ?: options.first().category
-                                                            onChangeSource(server, category.api)
-                                                        }
-                                                    }
-                                                } else {
-                                                    Modifier
-                                                }
-                                            ),
+                                            .clickable(onClick = selectServer),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        if (ready) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 4.dp),
-                                            ) {
-                                                if (ProviderCatalog.isFast(server)) {
-                                                    Icon(
-                                                        Icons.Default.Bolt,
-                                                        contentDescription = "Fast server",
-                                                        tint = if (selected) textColor else FastServerColor,
-                                                        modifier = Modifier.size(14.dp),
-                                                    )
-                                                }
-                                                Text(
-                                                    text = ProviderCatalog.label(server) + if (preferred) " ★" else "",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    fontWeight = if (selected || preferred) FontWeight.Bold else FontWeight.Normal,
-                                                    color = textColor,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 4.dp),
+                                        ) {
+                                            if (ProviderCatalog.isFast(server)) {
+                                                Icon(
+                                                    Icons.Default.Bolt,
+                                                    contentDescription = "Fast server",
+                                                    tint = if (selected) textColor else FastServerColor,
+                                                    modifier = Modifier.size(14.dp),
                                                 )
                                             }
-                                        } else {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                modifier = Modifier.padding(horizontal = 4.dp),
-                                            ) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(12.dp),
-                                                    strokeWidth = 2.dp,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                )
-                                                Text(
-                                                    text = ProviderCatalog.label(server),
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            }
+                                            Text(
+                                                text = ProviderCatalog.label(server) + if (preferred) " ★" else "",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = if (selected || preferred) FontWeight.Bold else FontWeight.Normal,
+                                                color = textColor,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
                                         }
                                     }
                                 }
@@ -743,6 +1218,129 @@ private fun SourceSelectors(
                     }
                 }
             }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileServerPickerContent(
+    data: WatchData,
+    servers: List<String>,
+    onSelect: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Select preferred server",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black,
+            )
+            Text(
+                text = if (data.preferredProvider == "auto") {
+                    "Choose once; it will be tried first for every anime."
+                } else {
+                    "Preferred: ${ProviderCatalog.label(data.preferredProvider)} · ${servers.size} available"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(
+                    Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = FastServerColor,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = "Fast servers usually start quickest",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 440.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            servers.forEach { server ->
+                val selected = server == data.provider
+                val preferred = server == data.preferredProvider
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(
+                            when {
+                                selected -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (selected || preferred) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(11.dp),
+                        )
+                        .clickable { onSelect(server) }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (ProviderCatalog.isFast(server)) {
+                        Icon(
+                            Icons.Default.Bolt,
+                            contentDescription = "Fast server",
+                            tint = if (selected) MaterialTheme.colorScheme.onPrimary else FastServerColor,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                    Text(
+                        text = ProviderCatalog.label(server),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (selected || preferred) FontWeight.Bold else FontWeight.Normal,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f).padding(start = 8.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (preferred) {
+                        Text(
+                            text = "Preferred",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
+                            else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (selected) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = "Selected",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(start = 8.dp).size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) {
+            Text("Close")
         }
     }
 }
@@ -753,25 +1351,52 @@ private fun CompactClickablePill(
     label: String,
     enabled: Boolean,
     focusRequester: FocusRequester? = null,
+    active: Boolean = false,
+    showArrow: Boolean = true,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onPreviewKeyEvent { event ->
+                val keyCode = event.nativeKeyEvent.keyCode
+                val activate = keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                    keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+                if (!enabled || !activate) {
+                    false
+                } else {
+                    if (event.type == KeyEventType.KeyUp) onClick()
+                    true
+                }
+            }
             .focusHighlight(RoundedCornerShape(10.dp))
             .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+            .background(
+                if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surface,
+            )
+            .border(
+                1.dp,
+                if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                RoundedCornerShape(10.dp),
+            )
             .clickable(enabled = enabled, onClick = onClick)
             .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Icon(
-            Icons.Filled.ArrowDropDown,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         )
+        if (showArrow) {
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -823,6 +1448,18 @@ private fun EpisodeChip(
     }
     Box(
         modifier = modifier
+            .onPreviewKeyEvent { event ->
+                val keyCode = event.nativeKeyEvent.keyCode
+                val activate = keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                    keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+                if (!activate) {
+                    false
+                } else {
+                    if (event.type == KeyEventType.KeyUp) onClick()
+                    true
+                }
+            }
             .focusHighlight(RoundedCornerShape(8.dp))
             .height(44.dp)
             .clip(RoundedCornerShape(8.dp))
@@ -907,11 +1544,22 @@ private val FastServerColor = Color(0xFFFFB300)
 
 @Composable
 private fun BackButton(onBack: () -> Unit, modifier: Modifier = Modifier) {
+    val tvFocusPolicy = if (LocalAppDeviceProfile.current.isTv) {
+        // A TV remote already has a dedicated Back key. Keeping this overlay out of the D-pad
+        // graph prevents Up/Center from unexpectedly abandoning the episode controls.
+        Modifier.focusProperties { canFocus = false }
+    } else {
+        Modifier
+    }
     IconButton(
         onClick = onBack,
         // The app draws edge-to-edge, so keep the button below the clock/battery area whenever
         // the status bar is visible (the inset is zero in fullscreen, where the bars are hidden).
-        modifier = modifier.statusBarsPadding().padding(4.dp).focusHighlight(RoundedCornerShape(24.dp)),
+        modifier = modifier
+            .then(tvFocusPolicy)
+            .statusBarsPadding()
+            .padding(4.dp)
+            .focusHighlight(RoundedCornerShape(24.dp)),
     ) {
         Icon(
             Icons.AutoMirrored.Filled.ArrowBack,

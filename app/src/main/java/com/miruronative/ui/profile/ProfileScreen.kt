@@ -73,6 +73,7 @@ import com.miruronative.ui.adaptive.TvDeferredTextField
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.PullRefreshContainer
 import com.miruronative.ui.components.RatingBadge
+import com.miruronative.ui.components.ScrollAwareTopBar
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -194,10 +195,10 @@ fun ProfileScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            ScrollAwareTopBar { TopAppBar(
                 title = { Text("Library", fontWeight = FontWeight.Black) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
+            ) }
         },
     ) { padding ->
         PullRefreshContainer(

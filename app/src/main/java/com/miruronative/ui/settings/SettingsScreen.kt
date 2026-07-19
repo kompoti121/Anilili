@@ -70,6 +70,7 @@ import com.miruronative.ui.UiState
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.CaptionAppearanceDialog
+import com.miruronative.ui.components.ScrollAwareTopBar
 import com.miruronative.ui.profile.AniListProfile
 import com.miruronative.ui.profile.ProfileViewModel
 import kotlinx.coroutines.Dispatchers
@@ -215,12 +216,12 @@ fun SettingsScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            ScrollAwareTopBar { TopAppBar(
                 title = {
                     Text(if (menuLanguage.usesSpanish()) "Ajustes" else "Settings", fontWeight = FontWeight.Black)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
+            ) }
         },
     ) { padding ->
         LazyColumn(

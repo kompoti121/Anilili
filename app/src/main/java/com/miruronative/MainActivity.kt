@@ -22,6 +22,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.DateRange
@@ -45,11 +51,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -79,6 +90,7 @@ import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.adaptive.rememberAppDeviceProfile
 import com.miruronative.ui.nav.Routes
+import com.miruronative.ui.components.LocalAppChromeVisible
 import com.miruronative.ui.notifications.NotificationsScreen
 import com.miruronative.ui.profile.ProfileScreen
 import com.miruronative.ui.schedule.ScheduleScreen
@@ -90,6 +102,7 @@ import com.miruronative.ui.watch.WatchScreen
 import com.miruronative.playback.PlaybackStatus
 import com.miruronative.playback.PlaybackService
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -261,6 +274,9 @@ private enum class Tab(
     fun label(language: MenuLanguage): String = if (language.usesSpanish()) spanishLabel else englishLabel
 }
 
+/** Search is launched from Home's top action on phones; TV keeps it in the navigation rail. */
+private val phoneTabs = Tab.entries.filterNot { it == Tab.SEARCH }
+
 @Composable
 private fun MiruroRoot(
     inPictureInPicture: Boolean,
@@ -274,6 +290,24 @@ private fun MiruroRoot(
     val showBottomBar = currentRoute in Routes.tabRoutes
     val menuLanguage by SettingsStore.menuLanguage.collectAsState()
     var resolverWebViewsReady by remember { mutableStateOf(false) }
+    var chromeVisible by remember { mutableStateOf(true) }
+    val chromeScope = rememberCoroutineScope()
+    var restoreChromeJob by remember { mutableStateOf<Job?>(null) }
+    val chromeScrollConnection = remember(deviceProfile.isTv) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (!deviceProfile.isTv && available.y != 0f) {
+                    chromeVisible = false
+                    restoreChromeJob?.cancel()
+                    restoreChromeJob = chromeScope.launch {
+                        delay(360)
+                        chromeVisible = true
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         DiagnosticsLog.event(
@@ -314,16 +348,23 @@ private fun MiruroRoot(
         DiagnosticsLog.event("UpdateManager.autoCheckIfDue complete")
     }
 
-    CompositionLocalProvider(LocalAppDeviceProfile provides deviceProfile) {
+    CompositionLocalProvider(
+        LocalAppDeviceProfile provides deviceProfile,
+        LocalAppChromeVisible provides (chromeVisible || deviceProfile.isTv),
+    ) {
         NotificationPermissionEffect()
         UpdatePromptHost()
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().nestedScroll(chromeScrollConnection)) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
                 bottomBar = {
-                    if (showBottomBar && !deviceProfile.useNavigationRail) {
+                    AnimatedVisibility(
+                        visible = showBottomBar && !deviceProfile.useNavigationRail && chromeVisible,
+                        enter = slideInVertically(tween(180)) { it } + fadeIn(tween(140)),
+                        exit = slideOutVertically(tween(150)) { it } + fadeOut(tween(110)),
+                    ) {
                         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                            Tab.entries.forEach { tab ->
+                            phoneTabs.forEach { tab ->
                                 val label = tab.label(menuLanguage)
                                 NavigationBarItem(
                                     selected = currentRoute == tab.route,

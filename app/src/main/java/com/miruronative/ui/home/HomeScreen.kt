@@ -87,6 +87,7 @@ import com.miruronative.ui.components.AnimeCard
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.PullRefreshContainer
+import com.miruronative.ui.components.ScrollAwareTopBar
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,7 +122,7 @@ fun HomeScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            ScrollAwareTopBar { TopAppBar(
                 title = {
                     if (!device.useNavigationRail) {
                         Text(
@@ -147,7 +148,7 @@ fun HomeScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
+            ) }
         },
     ) { padding ->
         when (val s = state) {

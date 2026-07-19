@@ -491,6 +491,12 @@ class MiruroRepository(
 
     data class ResolvedSources(val sources: SourcesResult, val provider: String)
 
+    /** Includes catalog matches that were checked but returned no playable streams. */
+    data class SourceResolution(
+        val resolved: ResolvedSources?,
+        val unavailableProviders: Set<String>,
+    )
+
     /**
      * Resolve a playable stream for [number] within the supplied [episodes] catalog, trying
      * [preferred] first and then other providers (fast Miruro ones before slower Anivexa
@@ -506,8 +512,9 @@ class MiruroRepository(
         episodes: EpisodesResult,
         excludedProviders: Set<String> = emptySet(),
         maxAttempts: Int = 5,
-    ): ResolvedSources? {
+    ): SourceResolution {
         val ordered = providerAttemptOrder(preferred, episodes.providerNames)
+        val unavailable = linkedSetOf<String>()
 
         var attempts = 0
         for (name in ordered) {
@@ -525,15 +532,19 @@ class MiruroRepository(
                 }
                 .getOrNull()
             if (result != null && result.streams.isNotEmpty()) {
-                return ResolvedSources(result, name)
+                return SourceResolution(
+                    resolved = ResolvedSources(result, name),
+                    unavailableProviders = unavailable,
+                )
             }
+            unavailable += name
             if (result != null) {
                 DiagnosticsLog.event(
                     "Source resolve empty provider=$name id=$anilistId episode=$number",
                 )
             }
         }
-        return null
+        return SourceResolution(resolved = null, unavailableProviders = unavailable)
     }
 
     private suspend fun mediaPage(

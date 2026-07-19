@@ -54,6 +54,7 @@ import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.ErrorBox
 import com.miruronative.ui.components.LoadingBox
+import com.miruronative.ui.components.ScrollAwareTopBar
 import com.miruronative.ui.rethrowIfCancellation
 import java.time.Instant
 import java.time.ZoneId
@@ -128,7 +129,7 @@ fun NotificationsScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            ScrollAwareTopBar { TopAppBar(
                 title = { Text("Notifications", fontWeight = FontWeight.Black) },
                 navigationIcon = {
                     IconButton(
@@ -154,7 +155,7 @@ fun NotificationsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
+            ) }
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {

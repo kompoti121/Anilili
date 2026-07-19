@@ -19,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.miruronative.R
+import com.miruronative.ui.components.ScrollAwareTopBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,12 +27,12 @@ fun MoreScreen(modifier: Modifier = Modifier) {
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            ScrollAwareTopBar { TopAppBar(
                 title = { Text("More") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
-            )
+            ) }
         },
     ) { padding ->
         Column(

@@ -21,6 +21,7 @@ import com.miruronative.ui.rethrowIfCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -46,6 +47,10 @@ data class WatchData(
     val chosenStream: StreamItem?,
     val seriesTitle: String,
     val artworkUrl: String?,
+    val seriesFormat: String? = null,
+    val averageScore: Int? = null,
+    val popularity: Int? = null,
+    val description: String? = null,
     val startPositionMs: Long = 0,
     val playbackGeneration: Int = 0,
     val preferredProvider: String = DEFAULT_PREFERRED_PROVIDER,
@@ -66,6 +71,12 @@ data class WatchSourceOption(
     val episodeCount: Int,
 )
 
+private data class EpisodeSourceKey(
+    val episode: Double,
+    val provider: String,
+    val category: Category,
+)
+
 class WatchViewModel : ViewModel() {
     private val repo = AppGraph.repository
 
@@ -84,14 +95,21 @@ class WatchViewModel : ViewModel() {
     private var startedKey: String? = null
     private var seriesTitle = "Anime"
     private var artworkUrl: String? = null
+    private var seriesFormat: String? = null
+    private var averageScore: Int? = null
+    private var popularity: Int? = null
+    private var description: String? = null
     private var totalEpisodes: Int? = null
     private val syncedAniListEpisodes = mutableSetOf<Int>()
     private var lastRequestedNumber = 1.0
     private var failedProviders = mutableSetOf<String>()
+    private val unavailableSources = mutableSetOf<EpisodeSourceKey>()
+    private val confirmedSources = mutableSetOf<EpisodeSourceKey>()
     private val failedStreamUrls = mutableSetOf<String>()
     private var resolveJob: Job? = null
     private var anivexaMergeJob: Job? = null
     private var miruroLateMergeJob: Job? = null
+    private var sourceValidationJob: Job? = null
     private var mergedIncludesAnivexa = false
     private var mergedEpisodes = EpisodesResult(emptyList())
 
@@ -107,13 +125,22 @@ class WatchViewModel : ViewModel() {
         category = Category.from(categoryApi)
         preferred = providerName
         totalEpisodes = null
+        seriesTitle = "Anime"
+        artworkUrl = null
+        seriesFormat = null
+        averageScore = null
+        popularity = null
+        description = null
         syncedAniListEpisodes.clear()
         failedProviders.clear()
+        unavailableSources.clear()
+        confirmedSources.clear()
         mergedIncludesAnivexa = false
 
         resolveJob?.cancel()
         anivexaMergeJob?.cancel()
         miruroLateMergeJob?.cancel()
+        sourceValidationJob?.cancel()
         resolveJob = viewModelScope.launch {
             _state.value = UiState.Loading
             _loadingStatus.value = null
@@ -195,6 +222,10 @@ class WatchViewModel : ViewModel() {
                 repo.animeInfo(id)?.let { info ->
                     seriesTitle = info.title.preferred
                     artworkUrl = info.coverImage.best
+                    seriesFormat = info.format
+                    averageScore = info.averageScore
+                    popularity = info.popularity
+                    description = info.description
                     totalEpisodes = info.episodes
                     DiagnosticsLog.event("Watch animeInfo success id=$id title=${seriesTitle.take(80)}")
                 }
@@ -243,6 +274,7 @@ class WatchViewModel : ViewModel() {
                     sourceOptions = sourceOptions(number),
                 ),
             )
+            launchSourceValidation(number)
         }
     }
 
@@ -278,6 +310,7 @@ class WatchViewModel : ViewModel() {
                     isLoadingMoreSources = false,
                 ),
             )
+            launchSourceValidation(number)
         }
     }
 
@@ -306,7 +339,7 @@ class WatchViewModel : ViewModel() {
         val previous = (_state.value as? UiState.Success)?.data
         _state.value = previous?.let { UiState.Success(it.copy(isResolving = true, notice = null)) }
             ?: UiState.Loading
-        var resolved = repo.resolveSources(
+        var resolution = repo.resolveSources(
             anilistId = anilistId,
             number = number,
             preferred = requestedProvider,
@@ -314,6 +347,8 @@ class WatchViewModel : ViewModel() {
             episodes = mergedEpisodes,
             excludedProviders = failedProviders,
         )
+        val unavailableThisResolve = resolution.unavailableProviders.toMutableSet()
+        var resolved = resolution.resolved
         if (resolved == null && !mergedIncludesAnivexa) {
             // The quick partial catalog missed; the slower servers may still carry this episode,
             // so wait for the full merge before declaring no source.
@@ -324,7 +359,7 @@ class WatchViewModel : ViewModel() {
             anivexaMergeJob?.join()
             // Last chance before "no source": the attempt cap only exists to bound mid-playback
             // fallback latency, so here every remaining server gets a try.
-            resolved = repo.resolveSources(
+            resolution = repo.resolveSources(
                 anilistId = anilistId,
                 number = number,
                 preferred = requestedProvider,
@@ -333,6 +368,11 @@ class WatchViewModel : ViewModel() {
                 excludedProviders = failedProviders,
                 maxAttempts = Int.MAX_VALUE,
             )
+            unavailableThisResolve += resolution.unavailableProviders
+            resolved = resolution.resolved
+        }
+        unavailableThisResolve.forEach { provider ->
+            unavailableSources += EpisodeSourceKey(number, provider, category)
         }
         if (resolved == null) {
             aniSkipFallback.cancel()
@@ -340,11 +380,26 @@ class WatchViewModel : ViewModel() {
             val message = "No playable source for episode ${fmt(number)} on any server"
             DiagnosticsLog.event("Watch resolve no source id=$anilistId episode=${fmt(number)}")
             _state.value = previous?.let {
-                UiState.Success(it.copy(isResolving = false, notice = message))
+                UiState.Success(
+                    it.copy(
+                        sourceOptions = sourceOptions(number),
+                        isResolving = false,
+                        notice = message,
+                    ),
+                )
             } ?: UiState.Error(message)
             return
         }
+        // A later successful retry makes this option valid again for the current session.
+        unavailableSources -= EpisodeSourceKey(number, resolved.provider, category)
+        confirmedSources += EpisodeSourceKey(number, resolved.provider, category)
         val fallbackNotice = if (resolved.provider != requestedProvider) {
+            // The preferred provider can be absent from the fast catalog and arrive in a later
+            // merge. The fallback already proves it was not usable for this playback request, so
+            // keep that late row out of this episode's picker as well.
+            if (requestedProvider != DEFAULT_PREFERRED_PROVIDER) {
+                unavailableSources += EpisodeSourceKey(number, requestedProvider, category)
+            }
             "${ProviderCatalog.label(requestedProvider)} is unavailable for this episode. " +
                 "Playing ${ProviderCatalog.label(resolved.provider)} instead."
         } else {
@@ -391,6 +446,10 @@ class WatchViewModel : ViewModel() {
                 chosenStream = chosen,
                 seriesTitle = seriesTitle,
                 artworkUrl = artworkUrl,
+                seriesFormat = seriesFormat,
+                averageScore = averageScore,
+                popularity = popularity,
+                description = description,
                 startPositionMs = resume,
                 preferredProvider = globalPreferredProvider,
                 isResolving = false,
@@ -399,6 +458,7 @@ class WatchViewModel : ViewModel() {
             ),
         )
         recordHistory(number, resolved.provider)
+        launchSourceValidation(number)
     }
 
     fun changeSource(providerName: String, categoryApi: String) {
@@ -418,6 +478,9 @@ class WatchViewModel : ViewModel() {
         val nextSpine = provider.episodes(nextCategory).takeIf { it.isNotEmpty() } ?: return
         val current = (_state.value as? UiState.Success)?.data
         val currentNumber = current?.current?.number ?: lastRequestedNumber
+        // Source controls are episode-scoped. Never let a stale selection jump the viewer to the
+        // first episode merely because that server/audio pair lacks the episode being watched.
+        if (nextSpine.none { it.number == currentNumber }) return
 
         if (rememberProvider) {
             preferred = providerName
@@ -450,7 +513,7 @@ class WatchViewModel : ViewModel() {
                 ),
             )
         }
-        launchResolve(nextSpine.firstOrNull { it.number == currentNumber }?.number ?: nextSpine.first().number)
+        launchResolve(currentNumber)
     }
 
     private suspend fun recordHistory(number: Double, provider: String) {
@@ -528,6 +591,7 @@ class WatchViewModel : ViewModel() {
     fun retry() {
         DiagnosticsLog.event("Watch retry requested episode=${fmt(lastRequestedNumber)}")
         failedProviders.clear()
+        unavailableSources.removeAll { it.episode == lastRequestedNumber && it.category == category }
         launchResolve(lastRequestedNumber)
     }
 
@@ -591,6 +655,7 @@ class WatchViewModel : ViewModel() {
         }
 
         failedProviders += data.provider
+        unavailableSources += EpisodeSourceKey(data.current.number, data.provider, data.category)
         launchResolve(data.current.number) {
             _state.value = UiState.Success(
                 data.copy(
@@ -602,20 +667,83 @@ class WatchViewModel : ViewModel() {
     }
 
     private fun sourceOptions(number: Double): List<WatchSourceOption> =
-        mergedEpisodes.providers
-            .flatMap { provider ->
-                provider.categories.map { category ->
-                    val episodes = provider.episodes(category)
-                    WatchSourceOption(
-                        provider = provider.name,
-                        category = category,
-                        hasCurrentEpisode = episodes.any { it.number == number },
-                        episodeCount = episodes.size,
-                    )
-                }
+        visibleSourceOptions(
+            candidates = availableSourceOptions(mergedEpisodes, number),
+            isConfirmed = { EpisodeSourceKey(number, it.provider, it.category) in confirmedSources },
+            isUnavailable = { EpisodeSourceKey(number, it.provider, it.category) in unavailableSources },
+        )
+
+    /**
+     * Episode catalogs can contain stale rows whose source endpoint returns no stream. Validate
+     * those rows in small parallel batches and publish only confirmed server/audio pairs; this
+     * keeps the picker truthful without delaying the first playable provider.
+     */
+    private fun launchSourceValidation(number: Double) {
+        sourceValidationJob?.cancel()
+        sourceValidationJob = viewModelScope.launch {
+            val candidates = availableSourceOptions(mergedEpisodes, number).filter { option ->
+                val key = EpisodeSourceKey(number, option.provider, option.category)
+                key !in confirmedSources && key !in unavailableSources
             }
-            .filter { it.episodeCount > 0 }
-            .sortedWith(compareBy<WatchSourceOption> { ProviderCatalog.sortKey(it.provider) }.thenBy { it.category.ordinal })
+            if (candidates.isEmpty()) {
+                val data = (_state.value as? UiState.Success)?.data
+                if (data != null && data.current.number == number && mergedIncludesAnivexa) {
+                    _state.value = UiState.Success(data.copy(isLoadingMoreSources = false))
+                }
+                return@launch
+            }
+
+            val initial = (_state.value as? UiState.Success)?.data
+            if (initial != null && initial.current.number == number) {
+                _state.value = UiState.Success(initial.copy(isLoadingMoreSources = true))
+            }
+            val providerNames = mergedEpisodes.providerNames.toSet()
+            candidates.chunked(SOURCE_VALIDATION_CONCURRENCY).forEachIndexed { batchIndex, batch ->
+                val results = batch.map { option ->
+                    async {
+                        val resolution = runCatching {
+                            repo.resolveSources(
+                                anilistId = anilistId,
+                                number = number,
+                                preferred = option.provider,
+                                category = option.category,
+                                episodes = mergedEpisodes,
+                                excludedProviders = providerNames - option.provider,
+                                maxAttempts = 1,
+                            )
+                        }.onFailure {
+                            DiagnosticsLog.throwable(
+                                "Watch source validation failed provider=${option.provider} " +
+                                    "category=${option.category.api} episode=${fmt(number)}",
+                                it,
+                            )
+                        }.getOrNull()
+                        option to (resolution?.resolved?.provider == option.provider)
+                    }
+                }.awaitAll()
+
+                if (lastRequestedNumber != number) return@launch
+                results.forEach { (option, available) ->
+                    val key = EpisodeSourceKey(number, option.provider, option.category)
+                    if (available) {
+                        confirmedSources += key
+                        unavailableSources -= key
+                    } else {
+                        unavailableSources += key
+                    }
+                }
+                val data = (_state.value as? UiState.Success)?.data ?: return@launch
+                if (data.current.number != number) return@launch
+                val hasMore = (batchIndex + 1) * SOURCE_VALIDATION_CONCURRENCY < candidates.size
+                _state.value = UiState.Success(
+                    data.copy(
+                        sourceOptions = sourceOptions(number),
+                        isLoadingMoreSources = !mergedIncludesAnivexa || hasMore,
+                    ),
+                )
+            }
+        }
+    }
 
     private fun fmt(n: Double): String = if (n % 1.0 == 0.0) n.toInt().toString() else n.toString()
 
@@ -630,6 +758,41 @@ class WatchViewModel : ViewModel() {
     }
 }
 
+/**
+ * Which of the episode's server/audio pairs are shown in the picker. Fast providers (the Miruro
+ * pipe's native HLS set and the API-backed Anivexa lookups) appear the moment the catalog has
+ * them — quick and reliable, no waiting on a per-server validation round-trip. Slower scrapers
+ * must be confirmed playable first so the list never advertises a dead endpoint. Anything proven
+ * unavailable for this episode is always hidden, even a fast one that failed validation.
+ */
+internal fun visibleSourceOptions(
+    candidates: List<WatchSourceOption>,
+    isConfirmed: (WatchSourceOption) -> Boolean,
+    isUnavailable: (WatchSourceOption) -> Boolean,
+): List<WatchSourceOption> = candidates.filter { option ->
+    !isUnavailable(option) && (isConfirmed(option) || ProviderCatalog.isFast(option.provider))
+}
+
+/** Only server/audio pairs carrying the episode currently on screen are valid controls. */
+internal fun availableSourceOptions(
+    episodes: EpisodesResult,
+    number: Double,
+): List<WatchSourceOption> = episodes.providers
+    .flatMap { provider ->
+        provider.categories.mapNotNull { category ->
+            val providerEpisodes = provider.episodes(category)
+            val hasCurrentEpisode = providerEpisodes.any { it.number == number }
+            if (!hasCurrentEpisode) return@mapNotNull null
+            WatchSourceOption(
+                provider = provider.name,
+                category = category,
+                hasCurrentEpisode = true,
+                episodeCount = providerEpisodes.size,
+            )
+        }
+    }
+    .sortedWith(compareBy<WatchSourceOption> { ProviderCatalog.sortKey(it.provider) }.thenBy { it.category.ordinal })
+
 internal fun shouldSyncAniListProgress(episodeNumber: Double, positionMs: Long, durationMs: Long): Boolean {
     if (episodeNumber < 1 || episodeNumber % 1.0 != 0.0) return false
     if (durationMs < MIN_ANILIST_SYNC_DURATION_MS || positionMs <= 0) return false
@@ -638,6 +801,7 @@ internal fun shouldSyncAniListProgress(episodeNumber: Double, positionMs: Long, 
 
 private const val MIN_ANILIST_SYNC_DURATION_MS = 60_000L
 private const val ANILIST_SYNC_WATCHED_FRACTION = 0.80
+private const val SOURCE_VALIDATION_CONCURRENCY = 4
 
 /** Provider-specific first-player policy, applied only after that provider has resolved sources. */
 internal fun pickProviderStream(provider: String, sources: SourcesResult): StreamItem? {
