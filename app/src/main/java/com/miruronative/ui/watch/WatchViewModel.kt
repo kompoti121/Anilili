@@ -15,8 +15,10 @@ import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.EpisodesResult
 import com.miruronative.data.model.SourcesResult
 import com.miruronative.data.model.StreamItem
+import com.miruronative.data.remote.KonohaEpisode
 import com.miruronative.diagnostics.DiagnosticsLog
 import com.miruronative.ui.UiState
+import com.miruronative.ui.detail.mergeEpisodeMetadata
 import com.miruronative.ui.rethrowIfCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -106,7 +108,10 @@ class WatchViewModel : ViewModel() {
     private val unavailableSources = mutableSetOf<EpisodeSourceKey>()
     private val confirmedSources = mutableSetOf<EpisodeSourceKey>()
     private val failedStreamUrls = mutableSetOf<String>()
+    /** Konoha's episode titles and stills, kept so every spine rebuild carries them. */
+    private var episodeMeta: List<KonohaEpisode> = emptyList()
     private var resolveJob: Job? = null
+    private var episodeMetaJob: Job? = null
     private var anivexaMergeJob: Job? = null
     private var miruroLateMergeJob: Job? = null
     private var sourceValidationJob: Job? = null
@@ -136,11 +141,16 @@ class WatchViewModel : ViewModel() {
         unavailableSources.clear()
         confirmedSources.clear()
         mergedIncludesAnivexa = false
+        episodeMeta = emptyList()
 
         resolveJob?.cancel()
+        episodeMetaJob?.cancel()
         anivexaMergeJob?.cancel()
         miruroLateMergeJob?.cancel()
         sourceValidationJob?.cancel()
+        // Runs beside source resolution: providers hand back bare numbered lists, so without this
+        // the episode list here reads "Episode 5" where the Anime page shows the real title.
+        episodeMetaJob = viewModelScope.launch { loadEpisodeMetadata(id) }
         resolveJob = viewModelScope.launch {
             _state.value = UiState.Loading
             _loadingStatus.value = null
@@ -320,7 +330,28 @@ class WatchViewModel : ViewModel() {
      * resolution still tries the preferred provider first and falls back per episode.
      */
     private fun pickSpine(merged: EpisodesResult): List<EpisodeItem> {
-        return pickNavigationSpine(merged, preferred, category)
+        val spine = pickNavigationSpine(merged, preferred, category)
+        // Applied on every rebuild, not just the first paint: a provider failover swaps the spine
+        // and would otherwise drop the titles back to bare numbers mid-episode.
+        if (spine.isEmpty() || episodeMeta.isEmpty()) return spine
+        return mergeEpisodeMetadata(spine, episodeMeta, anilistId)
+    }
+
+    /**
+     * Konoha's episode titles and stills — the same overlay the Anime page applies. Cosmetic and
+     * rate-limit-free, so any failure just leaves the provider's numbered list as it was.
+     */
+    private suspend fun loadEpisodeMetadata(id: Int) {
+        val meta = runCatching { repo.konohaEpisodes(id) }
+            .onFailure { DiagnosticsLog.throwable("Watch episode metadata failed id=$id", it) }
+            .getOrDefault(emptyList())
+        if (meta.isEmpty() || id != anilistId) return
+        episodeMeta = meta
+        val data = (_state.value as? UiState.Success)?.data ?: return
+        if (data.episodes.isEmpty()) return
+        _state.value = UiState.Success(
+            data.copy(episodes = mergeEpisodeMetadata(data.episodes, meta, id)),
+        )
     }
 
     private suspend fun resolveAndPlay(number: Double) {

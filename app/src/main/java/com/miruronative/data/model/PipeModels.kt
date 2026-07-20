@@ -22,6 +22,20 @@ data class EpisodeItem(
     val filler: Boolean,
 ) {
     val displayNumber: String get() = if (number % 1.0 == 0.0) number.toInt().toString() else number.toString()
+
+    /**
+     * The episode's own title, or null when the source only echoed the number back ("Episode 6",
+     * "EP 6", "6"). Several providers fill the field that way rather than leaving it empty, and
+     * such a title must not shadow a real one from the metadata overlay or get printed twice in a
+     * row that already shows the number.
+     */
+    val distinctTitle: String? get() {
+        val trimmed = title?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val echoesNumber = trimmed.equals("Episode $displayNumber", ignoreCase = true) ||
+            trimmed.equals("EP $displayNumber", ignoreCase = true) ||
+            trimmed == displayNumber
+        return trimmed.takeUnless { echoesNumber }
+    }
 }
 
 @Serializable

@@ -678,11 +678,13 @@ private fun DetailEpisodeRow(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box {
+        // The width belongs on the box, not the image: the progress bar below fills its parent,
+        // and an unconstrained box would take the whole row from the title beside it.
+        Box(Modifier.width(132.dp)) {
             AsyncImage(
                 model = selectedImage,
                 contentDescription = null,
-                modifier = Modifier.width(132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
                 contentScale = ContentScale.Crop,
             )
             Text(
@@ -705,13 +707,14 @@ private fun DetailEpisodeRow(
             )
         }
         Column(Modifier.weight(1f).padding(start = 13.dp)) {
+            val title = episode.distinctTitle
             Text(
-                text = episode.title?.takeIf { it.isNotBlank() } ?: "Episode ${episode.displayNumber}",
+                text = title ?: "Episode ${episode.displayNumber}",
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (episode.title != null) {
+            if (title != null) {
                 Text(
                     "Episode ${episode.displayNumber}",
                     style = MaterialTheme.typography.bodyMedium,

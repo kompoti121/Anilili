@@ -160,7 +160,9 @@ internal fun mergeEpisodeMetadata(
         return base.map { episode ->
             val extra = byNumber[episode.number] ?: return@map episode
             episode.copy(
-                title = episode.title ?: extra.title,
+                // A provider that filled the title with "Episode 5" counts as having none, or its
+                // placeholder would outrank the real title this overlay exists to supply.
+                title = episode.distinctTitle ?: extra.title ?: episode.title,
                 image = episode.image ?: extra.still,
             )
         }

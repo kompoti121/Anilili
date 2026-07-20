@@ -942,11 +942,13 @@ private fun MobileEpisodeRow(
             .padding(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box {
+        // The width belongs on the box, not the image: the progress bar below fills its parent,
+        // and an unconstrained box would take the whole row from the title beside it.
+        Box(Modifier.width(132.dp)) {
             AsyncImage(
                 model = episode.image ?: fallbackImage,
                 contentDescription = null,
-                modifier = Modifier.width(132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(9.dp)),
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(9.dp)),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             )
             Text(
@@ -969,19 +971,29 @@ private fun MobileEpisodeRow(
             )
         }
         Column(Modifier.weight(1f).padding(start = 13.dp)) {
+            val title = episode.distinctTitle
             Text(
-                text = episode.title?.takeIf { it.isNotBlank() } ?: "Episode ${episode.displayNumber}",
+                text = title ?: "Episode ${episode.displayNumber}",
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = if (selected) "Now playing" else "Episode ${episode.displayNumber}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+            // Only worth a second line when it says something the first one didn't: providers
+            // without real episode titles already have the number above.
+            val subtitle = when {
+                selected -> "Now playing"
+                title != null -> "Episode ${episode.displayNumber}"
+                else -> null
+            }
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
         }
     }
 }
