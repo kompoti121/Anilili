@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.FastForward
@@ -43,14 +42,16 @@ internal enum class TvPlayerControl {
     PLAY_PAUSE,
     FORWARD,
     NEXT,
-    VOLUME_DOWN,
     MUTE,
-    VOLUME_UP,
     SETTINGS,
     FULLSCREEN,
 }
 
-/** Stable left-to-right remote order; the progress bar is deliberately display-only. */
+/**
+ * Stable left-to-right remote order; the progress bar is deliberately display-only.
+ * Loudness is the remote's own volume rocker, so the row carries a single mute toggle rather
+ * than a level pair — three near-identical speaker glyphs read as one broken control.
+ */
 internal fun tvPlayerControlOrder(
     hasSettings: Boolean,
     hasFullscreen: Boolean,
@@ -60,9 +61,7 @@ internal fun tvPlayerControlOrder(
     add(TvPlayerControl.PLAY_PAUSE)
     add(TvPlayerControl.FORWARD)
     add(TvPlayerControl.NEXT)
-    add(TvPlayerControl.VOLUME_DOWN)
     add(TvPlayerControl.MUTE)
-    add(TvPlayerControl.VOLUME_UP)
     if (hasSettings) add(TvPlayerControl.SETTINGS)
     if (hasFullscreen) add(TvPlayerControl.FULLSCREEN)
 }
@@ -97,9 +96,7 @@ internal fun TvPlayerControls(
     onPlayPause: () -> Unit,
     onForward: () -> Unit,
     onNext: () -> Unit,
-    onVolumeDown: () -> Unit,
     onToggleMute: () -> Unit,
-    onVolumeUp: () -> Unit,
     onSettings: (() -> Unit)? = null,
     onFullscreen: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -153,17 +150,11 @@ internal fun TvPlayerControls(
                 TvControlButton("Next episode", enabled = hasNext, onClick = onNext) {
                     Icon(Icons.Default.SkipNext, contentDescription = null)
                 }
-                TvControlButton("Volume down", onClick = onVolumeDown) {
-                    Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null)
-                }
                 TvControlButton(if (isMuted) "Unmute" else "Mute", onClick = onToggleMute) {
                     Icon(
                         if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                         contentDescription = null,
                     )
-                }
-                TvControlButton("Volume up", onClick = onVolumeUp) {
-                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
                 }
                 onSettings?.let { callback ->
                     TvControlButton("Playback settings", onClick = callback) {

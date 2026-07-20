@@ -957,13 +957,6 @@ fun PlayerSurface(
                     controller?.seekForward()
                 },
                 onNext = currentOnNextEpisode,
-                onVolumeDown = {
-                    DiagnosticsLog.event("PlayerSurface TV control volumeDown")
-                    controller?.let { active ->
-                        active.volume = (active.volume - 0.1f).coerceAtLeast(0f)
-                        if (active.volume > 0f) lastAudibleVolume = active.volume
-                    }
-                },
                 onToggleMute = {
                     DiagnosticsLog.event("PlayerSurface TV control toggleMute")
                     controller?.let { active ->
@@ -973,13 +966,6 @@ fun PlayerSurface(
                         } else {
                             active.volume = lastAudibleVolume.coerceAtLeast(0.1f)
                         }
-                    }
-                },
-                onVolumeUp = {
-                    DiagnosticsLog.event("PlayerSurface TV control volumeUp")
-                    controller?.let { active ->
-                        active.volume = (active.volume + 0.1f).coerceAtMost(1f)
-                        lastAudibleVolume = active.volume
                     }
                 },
                 onSettings = {

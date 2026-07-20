@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
@@ -297,6 +298,24 @@ fun EmbedWebView(
         val web = webView ?: return@LaunchedEffect
         if (!webPlaybackAvailable) return@LaunchedEffect
         web.evaluateJavascript(SET_PLAYBACK_SPEED_JS(playbackSpeed), null)
+    }
+
+    // Kwik (and any other Plyr embed) opens on a poster and waits for a gesture, so the episode
+    // just sits at 0:00 until the viewer presses play — the app reads as frozen and every
+    // position-driven affordance is blind. The native path starts on its own, so start here too.
+    LaunchedEffect(webPlaybackAvailable, webView) {
+        val web = webView ?: return@LaunchedEffect
+        if (!webPlaybackAvailable) return@LaunchedEffect
+        web.evaluateJavascript(START_PLAYBACK_JS, null)
+    }
+
+    // Our bar and the provider's would otherwise stack on screen. Only pull theirs once ours is
+    // actually driving the video: on a server the poll cannot reach, the provider's chrome is the
+    // only working control and hiding it would leave nothing at all.
+    LaunchedEffect(webPlaybackAvailable, webView) {
+        val web = webView ?: return@LaunchedEffect
+        if (!webPlaybackAvailable) return@LaunchedEffect
+        web.evaluateJavascript(HIDE_PROVIDER_CHROME_JS, null)
     }
 
     // Best-effort: reaches the main document and same-origin iframes only, exactly like the
@@ -858,19 +877,6 @@ fun EmbedWebView(
                 },
                 onForward = { seekWebVideo(webView, positionMs + 10_000L) },
                 onNext = { currentOnNextEpisode?.invoke() },
-                onVolumeDown = {
-                    DiagnosticsLog.event("EmbedWebView TV control volumeDown available=$webPlaybackAvailable")
-                    if (webPlaybackAvailable) {
-                        adjustWebVolume(webView, -0.1f) { volume ->
-                            webVolume = volume
-                            if (volume > 0f) lastAudibleVolume = volume
-                        }
-                    } else {
-                        deviceVolume = (readDeviceVolume(embedAudioManager) - 0.1f).coerceIn(0f, 1f)
-                        applyDeviceVolume(embedAudioManager, deviceVolume)
-                        if (deviceVolume > 0f) lastAudibleVolume = deviceVolume
-                    }
-                },
                 onToggleMute = {
                     DiagnosticsLog.event("EmbedWebView TV control toggleMute available=$webPlaybackAvailable")
                     if (webPlaybackAvailable) {
@@ -882,19 +888,6 @@ fun EmbedWebView(
                         if (current > 0.001f) lastAudibleVolume = current
                         deviceVolume = if (current > 0.001f) 0f else lastAudibleVolume.coerceAtLeast(0.1f)
                         applyDeviceVolume(embedAudioManager, deviceVolume)
-                    }
-                },
-                onVolumeUp = {
-                    DiagnosticsLog.event("EmbedWebView TV control volumeUp available=$webPlaybackAvailable")
-                    if (webPlaybackAvailable) {
-                        adjustWebVolume(webView, 0.1f) { volume ->
-                            webVolume = volume
-                            lastAudibleVolume = volume
-                        }
-                    } else {
-                        deviceVolume = (readDeviceVolume(embedAudioManager) + 0.1f).coerceIn(0f, 1f)
-                        applyDeviceVolume(embedAudioManager, deviceVolume)
-                        lastAudibleVolume = deviceVolume
                     }
                 },
                 onSettings = {
@@ -909,7 +902,13 @@ fun EmbedWebView(
             )
         }
 
+        // Only offer a skip once the page has actually started playing. Embeds that open on a
+        // poster (Kwik) sit at position 0 indefinitely, and an intro window starting at 0 would
+        // otherwise pin "Skip Intro" on screen from load until the viewer presses play. A non-zero
+        // duration is the poll's proof it reached the <video> and saw it running.
+        val skipAvailable = durationMs > 0L
         val action: Pair<String, () -> Unit>? = when {
+            !skipAvailable -> null
             introEndMs != null && isInSkipWindow(positionMs, introStartMs, introEndMs) ->
                 "Skip Intro" to { seekWebVideo(webView, introEndMs) }
             outroStartMs != null &&
@@ -920,10 +919,22 @@ fun EmbedWebView(
             else -> null
         }
         action?.let { (label, onClick) ->
+            // Same dodge the native player makes: the bottom-left corner is where the bar draws its
+            // seek slider and elapsed time, so while a bar is up the skip button moves to the top
+            // instead of sitting on top of them. It only takes the corner when the screen is clear.
+            val controlsShowing = when {
+                device.isTv -> tvControlsVisible
+                touchControlsActive -> touchControlsVisible
+                else -> fallbackControlsVisible
+            }
             WebSkipButton(
                 label = label,
                 onClick = onClick,
-                modifier = Modifier.align(Alignment.BottomStart),
+                modifier = if (controlsShowing) {
+                    Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp)
+                } else {
+                    Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 24.dp)
+                },
             )
         }
     }
@@ -955,8 +966,7 @@ private fun WebSkipButton(label: String, onClick: () -> Unit, modifier: Modifier
             contentColor = Color.White,
         ),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        modifier = modifier
-            .padding(start = 24.dp, bottom = 24.dp),
+        modifier = modifier,
     ) {
         Text(
             label.uppercase(),
@@ -1091,6 +1101,64 @@ private fun CaptionEdgeStyle.toCssTextShadow(): String = when (this) {
 private fun String.toJsStringLiteral(): String =
     "'" + replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"
 
+/**
+ * Starts a paused embed. Only ever calls play() on a video that is actually paused, so a provider
+ * that already autoplays is left alone rather than being toggled off. `play()` returns a promise
+ * that rejects when the page still insists on a gesture; that is a no-op, not a failure.
+ */
+private val START_PLAYBACK_JS = """
+    (function() {
+      if (window.__aniliAutoStarted) return;
+      function start(root) {
+        var video = root.querySelector('video');
+        if (!video || !video.paused) return !!video;
+        var play = video.play();
+        if (play && play.catch) play.catch(function() {});
+        return true;
+      }
+      try {
+        if (start(document)) { window.__aniliAutoStarted = true; return; }
+        var frames = document.querySelectorAll('iframe');
+        for (var i = 0; i < frames.length; i++) {
+          try {
+            if (frames[i].contentDocument && start(frames[i].contentDocument)) {
+              window.__aniliAutoStarted = true;
+              return;
+            }
+          } catch (e) { /* cross-origin */ }
+        }
+      } catch (e) { /* best effort */ }
+    })();
+""".trimIndent()
+
+/**
+ * Drops the provider's own control bar so ours is the only one on screen. Scoped to Plyr, which is
+ * what the embeds we can drive actually run (verified on Kwik); an unrecognised player keeps its
+ * chrome rather than being blanked by a guess. A stylesheet rule beats Plyr's own class toggling.
+ */
+private val HIDE_PROVIDER_CHROME_JS = """
+    (function() {
+      var css = '.plyr__controls{display:none !important;}';
+      function apply(root) {
+        if (!root || root.getElementById('anili-hide-chrome')) return;
+        var head = root.head || root.documentElement;
+        if (!head) return;
+        var style = root.createElement('style');
+        style.id = 'anili-hide-chrome';
+        style.appendChild(root.createTextNode(css));
+        head.appendChild(style);
+      }
+      try {
+        apply(document);
+        var frames = document.querySelectorAll('iframe');
+        for (var i = 0; i < frames.length; i++) {
+          try { if (frames[i].contentDocument) apply(frames[i].contentDocument); }
+          catch (e) { /* cross-origin */ }
+        }
+      } catch (e) { /* best effort */ }
+    })();
+""".trimIndent()
+
 private val REMOTE_TOGGLE_PLAYBACK_JS = """
     (function() {
       function toggle(root) {
@@ -1150,14 +1218,6 @@ private fun RESUME_WHEN_READY_JS(targetSec: Double): String = """
 private fun seekWebVideo(webView: WebView?, targetMs: Long?) {
     val targetSec = targetMs?.div(1000.0) ?: return
     runCatching { webView?.evaluateJavascript(SEEK_VIDEO_JS(targetSec), null) }
-}
-
-private fun adjustWebVolume(webView: WebView?, delta: Float, onChanged: (Float) -> Unit) {
-    runCatching {
-        webView?.evaluateJavascript(WEB_VOLUME_JS(delta = delta, absolute = null)) { result ->
-            result.toFloatOrNull()?.coerceIn(0f, 1f)?.let(onChanged)
-        }
-    }
 }
 
 private fun setWebVolume(webView: WebView?, volume: Float, onChanged: (Float) -> Unit) {
