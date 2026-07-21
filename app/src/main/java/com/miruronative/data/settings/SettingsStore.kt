@@ -36,6 +36,19 @@ enum class MenuLanguage(val storedValue: String) {
     }
 }
 
+/** How an episode list is drawn: rich rows with stills, or compact number chips. */
+enum class EpisodeLayout(val storedValue: String) {
+    LIST("list"),
+    GRID("grid");
+
+    fun toggled(): EpisodeLayout = if (this == LIST) GRID else LIST
+
+    companion object {
+        fun fromStored(value: String?): EpisodeLayout =
+            entries.firstOrNull { it.storedValue == value } ?: LIST
+    }
+}
+
 enum class DefaultQuality(val storedValue: String, val label: String) {
     AUTO("auto", "Auto"),
     HIGHEST("highest", "Highest"),
@@ -114,6 +127,11 @@ object SettingsStore {
     private val _defaultQuality = MutableStateFlow(deviceDefaultQuality())
     val defaultQuality = _defaultQuality.asStateFlow()
 
+    // Set once and expected to stick: the viewer who wants dense number chips for a long-runner
+    // wants them on the next screen too, not just until they navigate away.
+    private val _episodeLayout = MutableStateFlow(EpisodeLayout.LIST)
+    val episodeLayout = _episodeLayout.asStateFlow()
+
     private val _preferredProvider = MutableStateFlow(DEFAULT_PREFERRED_PROVIDER)
     val preferredProvider = _preferredProvider.asStateFlow()
     private val loaded = MutableStateFlow(false)
@@ -160,6 +178,11 @@ object SettingsStore {
     fun setDefaultQuality(value: DefaultQuality) {
         _defaultQuality.value = value
         scope.launch { store.edit { it[DEFAULT_QUALITY] = value.storedValue } }
+    }
+
+    fun setEpisodeLayout(value: EpisodeLayout) {
+        _episodeLayout.value = value
+        scope.launch { store.edit { it[EPISODE_LAYOUT] = value.storedValue } }
     }
 
     fun setMenuLanguage(value: MenuLanguage) {
@@ -220,6 +243,7 @@ object SettingsStore {
         _menuLanguage.value = MenuLanguage.fromStored(prefs[MENU_LANGUAGE])
         _defaultQuality.value = prefs[DEFAULT_QUALITY]?.let(DefaultQuality::fromStored)
             ?: deviceDefaultQuality()
+        _episodeLayout.value = EpisodeLayout.fromStored(prefs[EPISODE_LAYOUT])
         _preferredProvider.value =
             prefs[PREFERRED_PROVIDER]?.takeIf(String::isNotBlank) ?: DEFAULT_PREFERRED_PROVIDER
         loaded.value = true
@@ -257,6 +281,7 @@ object SettingsStore {
     private val CAPTION_EDGE_STYLE = stringPreferencesKey("caption_edge_style")
     private val MENU_LANGUAGE = stringPreferencesKey("menu_language")
     private val DEFAULT_QUALITY = stringPreferencesKey("default_quality")
+    private val EPISODE_LAYOUT = stringPreferencesKey("episode_layout")
     private val PREFERRED_PROVIDER = stringPreferencesKey("preferred_provider")
     private val MIGRATED = booleanPreferencesKey("migrated_from_shared_preferences")
 }

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -65,11 +68,19 @@ import com.miruronative.data.library.WatchlistEntry
 import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.FuzzyDate
 import com.miruronative.data.model.Media
+import com.miruronative.data.settings.EpisodeLayout
+import com.miruronative.data.settings.SettingsStore
 import com.miruronative.ui.UiState
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
+import com.miruronative.ui.components.EPISODE_BROWSER_MIN_EPISODES
+import com.miruronative.ui.components.EpisodeBrowserBar
+import com.miruronative.ui.components.EpisodeNumberChip
 import com.miruronative.ui.components.ErrorBox
 import com.miruronative.ui.components.LoadingBox
+import com.miruronative.ui.components.blockIndexContaining
+import com.miruronative.ui.components.episodeBlocks
+import com.miruronative.ui.components.filterEpisodes
 import com.miruronative.ui.components.PullRefreshContainer
 import com.miruronative.ui.components.ScrollAwareTopBar
 import com.miruronative.ui.components.WatchProgressBar
@@ -191,6 +202,18 @@ private fun DetailContent(
             )
         }
     }
+    val playEpisode: (EpisodeItem) -> Unit = { episode ->
+        onPlay(data.selectedSeasonId, "auto", data.preferredCategory.api, episode.displayNumber)
+    }
+
+    // Episode browsing. Query and range reset per season; a null range means "not chosen yet",
+    // which is what lets the resumed episode's block be the one that opens.
+    val episodeLayout by SettingsStore.episodeLayout.collectAsState()
+    var episodeQuery by remember(data.selectedSeasonId) { mutableStateOf("") }
+    var chosenBlockIndex by remember(data.selectedSeasonId) { mutableStateOf<Int?>(null) }
+    val blocks = remember(episodes) { episodeBlocks(episodes) }
+    val browserVisible = selectedTab == DetailTab.EPISODES && episodes.size > EPISODE_BROWSER_MIN_EPISODES
+    val browserFocus = remember { FocusRequester() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -216,7 +239,11 @@ private fun DetailContent(
             }
         }
         stickyHeader {
-            DetailTabs(selected = selectedTab, onSelect = { selectedTab = it })
+            DetailTabs(
+                selected = selectedTab,
+                onSelect = { selectedTab = it },
+                downFocus = browserFocus.takeIf { browserVisible },
+            )
         }
 
         when (selectedTab) {
@@ -244,24 +271,76 @@ private fun DetailContent(
                 val seasonCover = seasons.firstOrNull { it.id == data.selectedSeasonId }
                     ?.let { it.bannerImage ?: it.coverImage.best }
                 val seasonResume = history.firstOrNull { it.anilistId == data.selectedSeasonId }
+                // Until the viewer picks a range, open on the one holding their resume point —
+                // otherwise a thousand-episode series always drops them back at episode 1.
+                val blockIndex = (chosenBlockIndex ?: blockIndexContaining(blocks, seasonResume?.episodeNumber))
+                    .coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
+                // A search spans the whole season; only an unfiltered list is bounded by the block.
+                val filtering = episodeQuery.isNotBlank()
+                val shown = if (filtering) {
+                    filterEpisodes(episodes, episodeQuery)
+                } else {
+                    blocks.getOrNull(blockIndex)?.episodes.orEmpty()
+                }
+                if (browserVisible) {
+                    item {
+                        EpisodeBrowserBar(
+                            blocks = blocks,
+                            selectedBlockIndex = blockIndex,
+                            onSelectBlock = { chosenBlockIndex = it },
+                            query = episodeQuery,
+                            onQueryChange = { episodeQuery = it },
+                            layout = episodeLayout,
+                            onToggleLayout = { SettingsStore.setEpisodeLayout(episodeLayout.toggled()) },
+                            focusRequester = browserFocus,
+                            modifier = Modifier.padding(horizontal = device.pagePadding, vertical = 6.dp),
+                        )
+                    }
+                }
+                // Only the first row needs redirecting; the rest reach the bar through it.
+                val firstItemUp: Modifier = if (browserVisible) {
+                    Modifier.focusProperties { up = browserFocus }
+                } else {
+                    Modifier
+                }
                 when {
-                    episodes.isNotEmpty() -> items(
-                        items = episodes,
-                        key = EpisodeItem::pipeId,
-                    ) { episode ->
+                    shown.isNotEmpty() && episodeLayout == EpisodeLayout.GRID -> itemsIndexed(
+                        items = shown.chunked(device.episodeColumns),
+                        key = { _, row -> row.first().pipeId },
+                    ) { rowIndex, row ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = device.pagePadding, vertical = 4.dp)
+                                .then(if (rowIndex == 0) firstItemUp else Modifier),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            row.forEach { episode ->
+                                EpisodeNumberChip(
+                                    episode = episode,
+                                    selected = false,
+                                    watchedFraction = episodeWatchFraction(seasonResume, episode.number),
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { playEpisode(episode) },
+                                )
+                            }
+                            repeat(device.episodeColumns - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                    shown.isNotEmpty() -> itemsIndexed(
+                        items = shown,
+                        key = { _, episode -> episode.pipeId },
+                    ) { index, episode ->
                         DetailEpisodeRow(
                             episode = episode,
                             fallbackImage = seasonCover ?: info.bannerImage ?: info.coverImage.best,
                             watchedFraction = episodeWatchFraction(seasonResume, episode.number),
-                            onClick = {
-                                onPlay(
-                                    data.selectedSeasonId,
-                                    "auto",
-                                    data.preferredCategory.api,
-                                    episode.displayNumber,
-                                )
-                            },
+                            onClick = { playEpisode(episode) },
+                            modifier = if (index == 0) firstItemUp else Modifier,
                         )
+                    }
+                    filtering -> item {
+                        InlineStatus("No episode matches “$episodeQuery”.", loading = false)
                     }
                     data.seasonEpisodesLoading -> item { InlineStatus("Loading episodes…", loading = true) }
                     else -> item { InlineStatus("No episode information is available yet.", loading = false) }
@@ -436,12 +515,18 @@ private fun SeriesWatchProgress(resume: HistoryEntry, totalEpisodes: Int) {
 }
 
 @Composable
-private fun DetailTabs(selected: DetailTab, onSelect: (DetailTab) -> Unit) {
+private fun DetailTabs(
+    selected: DetailTab,
+    onSelect: (DetailTab) -> Unit,
+    // The episode browser below is invisible to 2D focus search, so the way down is named.
+    downFocus: FocusRequester? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
             .horizontalScroll(rememberScrollState())
+            .then(downFocus?.let { target -> Modifier.focusProperties { down = target } } ?: Modifier)
             .padding(horizontal = LocalAppDeviceProfile.current.pagePadding, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -666,10 +751,11 @@ private fun DetailEpisodeRow(
     fallbackImage: String?,
     onClick: () -> Unit,
     watchedFraction: Float = 0f,
+    modifier: Modifier = Modifier,
 ) {
     val selectedImage = episode.image ?: fallbackImage
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = LocalAppDeviceProfile.current.pagePadding, vertical = 6.dp)
             .focusHighlight(RoundedCornerShape(12.dp))

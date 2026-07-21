@@ -102,10 +102,18 @@ import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.StreamItem
 import com.miruronative.diagnostics.DiagnosticsLog
 import com.miruronative.playback.PlaybackService
+import com.miruronative.data.settings.EpisodeLayout
+import com.miruronative.data.settings.SettingsStore
 import com.miruronative.ui.UiState
+import com.miruronative.ui.components.EPISODE_BROWSER_MIN_EPISODES
+import com.miruronative.ui.components.EpisodeBrowserBar
+import com.miruronative.ui.components.EpisodeNumberChip
 import com.miruronative.ui.components.ErrorBox
 import com.miruronative.ui.components.LoadingBox
+import com.miruronative.ui.components.blockIndexContaining
+import com.miruronative.ui.components.episodeBlocks
 import com.miruronative.ui.components.episodeWatchFraction
+import com.miruronative.ui.components.filterEpisodes
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
 import kotlinx.coroutines.delay
@@ -571,9 +579,28 @@ private fun WatchContent(
             return@Column
         }
 
-        val episodeRows = remember(data.episodes, device.episodeColumns) {
-            data.episodes.withIndex().chunked(device.episodeColumns)
+        // Browsing state for long-runners. A null range means "not chosen yet", which opens on
+        // the block holding the episode that is actually playing.
+        var episodeQuery by remember(data.anilistId) { mutableStateOf("") }
+        var chosenBlockIndex by remember(data.anilistId) { mutableStateOf<Int?>(null) }
+        val blocks = remember(data.episodes) { episodeBlocks(data.episodes) }
+        // Episodes are selected by their index in the full list, so filtering has to keep a way
+        // back to it. pipeId is already the list key, so it is unique by contract.
+        val indexByPipeId = remember(data.episodes) {
+            data.episodes.withIndex().associate { (index, episode) -> episode.pipeId to index }
         }
+        val tvBlockIndex = (chosenBlockIndex ?: blockIndexContaining(blocks, data.current.number))
+            .coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
+        val tvShownEpisodes = if (episodeQuery.isNotBlank()) {
+            filterEpisodes(data.episodes, episodeQuery)
+        } else {
+            blocks.getOrNull(tvBlockIndex)?.episodes.orEmpty()
+        }
+        val episodeRows = remember(tvShownEpisodes, device.episodeColumns) {
+            tvShownEpisodes.chunked(device.episodeColumns)
+        }
+        val tvBrowserVisible = data.episodes.size > EPISODE_BROWSER_MIN_EPISODES
+        val tvBrowserFocus = remember { FocusRequester() }
         val tvHistory by LibraryStore.history.collectAsState()
         val tvResume = tvHistory.firstOrNull { it.anilistId == data.anilistId }
         LazyColumn(
@@ -602,6 +629,7 @@ private fun WatchContent(
                     onChangeCategory = onChangeCategory,
                     focusRequester = sourceFocus,
                     onToggleFullscreen = onToggleFullscreen,
+                    downFocus = tvBrowserFocus.takeIf { tvBrowserVisible },
                 )
                 data.notice?.let { notice ->
                     Text(
@@ -616,21 +644,58 @@ private fun WatchContent(
                     )
                 }
             }
-            items(episodeRows) { row ->
+            if (tvBrowserVisible) {
+                item {
+                    EpisodeBrowserBar(
+                        blocks = blocks,
+                        selectedBlockIndex = tvBlockIndex,
+                        onSelectBlock = { chosenBlockIndex = it },
+                        query = episodeQuery,
+                        onQueryChange = { episodeQuery = it },
+                        layout = EpisodeLayout.GRID,
+                        onToggleLayout = {},
+                        showLayoutToggle = false,
+                        focusRequester = tvBrowserFocus,
+                        modifier = Modifier.padding(horizontal = device.pagePadding, vertical = 6.dp),
+                    )
+                }
+            }
+            itemsIndexed(episodeRows) { rowIndex, row ->
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = device.pagePadding, vertical = 5.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = device.pagePadding, vertical = 5.dp)
+                        // Only the top row needs redirecting; the rest reach the bar through it.
+                        .then(
+                            if (rowIndex == 0 && tvBrowserVisible) {
+                                Modifier.focusProperties { up = tvBrowserFocus }
+                            } else {
+                                Modifier
+                            },
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    row.forEach { (index, episode) ->
-                        EpisodeChip(
+                    row.forEach { episode ->
+                        val index = indexByPipeId[episode.pipeId] ?: -1
+                        EpisodeNumberChip(
                             episode = episode,
                             selected = index == data.currentIndex,
                             watchedFraction = episodeWatchFraction(tvResume, episode.number),
                             modifier = Modifier.weight(1f),
-                            onClick = { onSelectEpisode(index) },
+                            onClick = { if (index >= 0) onSelectEpisode(index) },
                         )
                     }
                     repeat(device.episodeColumns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+            if (episodeQuery.isNotBlank() && episodeRows.isEmpty()) {
+                item {
+                    Text(
+                        text = "No episode matches “$episodeQuery”.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = device.pagePadding, vertical = 12.dp),
+                    )
                 }
             }
             item { Spacer(Modifier.height(24.dp)) }
@@ -866,9 +931,26 @@ private fun MobileWatchDetails(
     onSelectEpisode: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val pad = LocalAppDeviceProfile.current.pagePadding
+    val device = LocalAppDeviceProfile.current
+    val pad = device.pagePadding
     val historyEntries by LibraryStore.history.collectAsState()
     val resume = historyEntries.firstOrNull { it.anilistId == data.anilistId }
+    // Browsing state for long-runners; a null range opens on the block that is playing.
+    val episodeLayout by SettingsStore.episodeLayout.collectAsState()
+    var episodeQuery by remember(data.anilistId) { mutableStateOf("") }
+    var chosenBlockIndex by remember(data.anilistId) { mutableStateOf<Int?>(null) }
+    val blocks = remember(data.episodes) { episodeBlocks(data.episodes) }
+    // Episodes are selected by index into the full list, so filtering must keep a way back to it.
+    val indexByPipeId = remember(data.episodes) {
+        data.episodes.withIndex().associate { (index, episode) -> episode.pipeId to index }
+    }
+    val blockIndex = (chosenBlockIndex ?: blockIndexContaining(blocks, data.current.number))
+        .coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
+    val shownEpisodes = if (episodeQuery.isNotBlank()) {
+        filterEpisodes(data.episodes, episodeQuery)
+    } else {
+        blocks.getOrNull(blockIndex)?.episodes.orEmpty()
+    }
     LazyColumn(modifier = modifier) {
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -907,14 +989,60 @@ private fun MobileWatchDetails(
                 )
             }
         }
-        itemsIndexed(data.episodes, key = { _, item -> item.pipeId }) { index, episode ->
-            MobileEpisodeRow(
-                episode = episode,
-                fallbackImage = data.artworkUrl,
-                selected = index == data.currentIndex,
-                watchedFraction = episodeWatchFraction(resume, episode.number),
-                onClick = { onSelectEpisode(index) },
-            )
+        if (data.episodes.size > EPISODE_BROWSER_MIN_EPISODES) {
+            item {
+                EpisodeBrowserBar(
+                    blocks = blocks,
+                    selectedBlockIndex = blockIndex,
+                    onSelectBlock = { chosenBlockIndex = it },
+                    query = episodeQuery,
+                    onQueryChange = { episodeQuery = it },
+                    layout = episodeLayout,
+                    onToggleLayout = { SettingsStore.setEpisodeLayout(episodeLayout.toggled()) },
+                    modifier = Modifier.padding(horizontal = pad).padding(bottom = 6.dp),
+                )
+            }
+        }
+        when {
+            shownEpisodes.isNotEmpty() && episodeLayout == EpisodeLayout.GRID -> items(
+                shownEpisodes.chunked(device.episodeColumns),
+                key = { row -> row.first().pipeId },
+            ) { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = pad, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    row.forEach { episode ->
+                        val index = indexByPipeId[episode.pipeId] ?: -1
+                        EpisodeNumberChip(
+                            episode = episode,
+                            selected = index == data.currentIndex,
+                            watchedFraction = episodeWatchFraction(resume, episode.number),
+                            modifier = Modifier.weight(1f),
+                            onClick = { if (index >= 0) onSelectEpisode(index) },
+                        )
+                    }
+                    repeat(device.episodeColumns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+            shownEpisodes.isNotEmpty() -> items(shownEpisodes, key = EpisodeItem::pipeId) { episode ->
+                val index = indexByPipeId[episode.pipeId] ?: -1
+                MobileEpisodeRow(
+                    episode = episode,
+                    fallbackImage = data.artworkUrl,
+                    selected = index == data.currentIndex,
+                    watchedFraction = episodeWatchFraction(resume, episode.number),
+                    onClick = { if (index >= 0) onSelectEpisode(index) },
+                )
+            }
+            episodeQuery.isNotBlank() -> item {
+                Text(
+                    text = "No episode matches “$episodeQuery”.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = pad, vertical = 12.dp),
+                )
+            }
         }
         item { Spacer(Modifier.height(28.dp)) }
     }
@@ -1007,6 +1135,9 @@ private fun SourceSelectors(
     onChangeCategory: (String) -> Unit,
     focusRequester: FocusRequester,
     onToggleFullscreen: (() -> Unit)? = null,
+    // Where the D-pad should go when leaving this row downwards. The episode browser below is
+    // invisible to 2D focus search, so it has to be named explicitly.
+    downFocus: FocusRequester? = null,
 ) {
     val device = LocalAppDeviceProfile.current
     val servers = remember(data.sourceOptions) { data.sourceOptions.map { it.provider }.distinct() }
@@ -1034,6 +1165,7 @@ private fun SourceSelectors(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = device.pagePadding, vertical = 4.dp)
+            .then(downFocus?.let { target -> Modifier.focusProperties { down = target } } ?: Modifier)
             .focusGroup(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1537,74 +1669,6 @@ private fun CompactDropdown(
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             content { expanded = false }
-        }
-    }
-}
-
-@Composable
-private fun EpisodeChip(
-    episode: EpisodeItem,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    watchedFraction: Float = 0f,
-) {
-    val background = when {
-        selected -> MaterialTheme.colorScheme.primary
-        episode.filler -> MaterialTheme.colorScheme.surfaceVariant
-        else -> MaterialTheme.colorScheme.surface
-    }
-    Box(
-        modifier = modifier
-            .onPreviewKeyEvent { event ->
-                val keyCode = event.nativeKeyEvent.keyCode
-                val activate = keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
-                    keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
-                    keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
-                if (!activate) {
-                    false
-                } else {
-                    if (event.type == KeyEventType.KeyUp) onClick()
-                    true
-                }
-            }
-            .focusHighlight(RoundedCornerShape(8.dp))
-            .height(44.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(background)
-            .border(
-                1.dp,
-                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                RoundedCornerShape(8.dp),
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            episode.displayNumber,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurface,
-        )
-        if (episode.filler) {
-            Text(
-                "F",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                else MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 5.dp),
-            )
-        }
-        // Watched underline: the selected chip is already fully highlighted, so it skips it.
-        if (!selected) {
-            com.miruronative.ui.components.WatchProgressBar(
-                fraction = watchedFraction,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
         }
     }
 }
