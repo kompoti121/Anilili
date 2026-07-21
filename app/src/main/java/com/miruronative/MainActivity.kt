@@ -87,6 +87,7 @@ import com.miruronative.data.settings.MenuLanguage
 import com.miruronative.data.update.UpdateManager
 import com.miruronative.ui.detail.DetailScreen
 import com.miruronative.ui.FlixcloudResolverWebView
+import com.miruronative.ui.HanimeResolverWebView
 import com.miruronative.ui.home.HomeScreen
 import com.miruronative.ui.PipeWebView
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
@@ -454,6 +455,16 @@ private fun MiruroRoot(
                 FlixcloudResolverWebView()
                 // Only carried once adult content is on. A viewer who never enables it does not
                 // pay for a third resident WebView — which matters most on memory-starved sticks.
+                val hideAdult by SettingsStore.hideAdultContent.collectAsState()
+                if (!hideAdult) {
+                    HanimeResolverWebView()
+                    // The catalogue is a single bulk file with no per-title endpoint behind it, so
+                    // fetch it while the viewer is still in Settings rather than making their
+                    // first search wait for it.
+                    LaunchedEffect(Unit) {
+                        com.miruronative.data.AppGraph.repository.warmHanimeCatalogue()
+                    }
+                }
             }
         }
     }

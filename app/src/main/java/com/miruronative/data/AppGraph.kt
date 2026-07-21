@@ -55,7 +55,7 @@ object AppGraph {
         repository = MiruroRepository(
             aniList = aniList,
             pipe = PipeClient(json),
-            anivexa = AnivexaClient(httpClient, json, aniList),
+            anivexa = AnivexaClient(context, httpClient, json, aniList, cache),
             jikan = JikanClient(httpClient, json),
             aniSkip = AniSkipClient(httpClient, json),
             mal = MalClient(httpClient, json),

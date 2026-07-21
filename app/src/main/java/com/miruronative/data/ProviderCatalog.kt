@@ -19,7 +19,21 @@ object ProviderCatalog {
     // Anivexa providers we query (reliable, self-hosted sources).
     val anivexaProviders = listOf(
         "senshi", "anibd", "anikoto", "kaa", "allanime", "animekai", "reanime", "anizone", "animegg", "anineko", "2dhive",
+        "hanime",
     )
+
+    /**
+     * Providers that only ever carry adult material. They are dropped from every catalog and from
+     * the server picker while "Hide adult content" is on, so a viewer who has not opted in is
+     * never offered one — even on a title that happens to match by name.
+     */
+    val adultProviders = setOf("hanime")
+
+    fun isAdultOnly(provider: String): Boolean = provider in adultProviders
+
+    /** The providers to query for [hideAdult]; the adult-only ones drop out when it is set. */
+    fun anivexaProvidersFor(hideAdult: Boolean): List<String> =
+        if (hideAdult) anivexaProviders.filterNot(::isAdultOnly) else anivexaProviders
 
     // Providers whose resolution drives the hidden resolver WebView rather than plain HTTP. That
     // page runs a real player, so resolving one competes for the hardware video decoder with

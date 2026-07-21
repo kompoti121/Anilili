@@ -62,9 +62,11 @@ internal fun borrowedSubtitleOffsetMs(dubIntroSeconds: Double?, subIntroSeconds:
  * extraction happen lazily when a user starts an episode.
  */
 class AnivexaClient(
+    private val context: android.content.Context,
     private val client: OkHttpClient,
     private val json: Json,
     private val aniList: AniListClient,
+    private val cache: com.miruronative.data.cache.AppCache,
 ) {
     private data class Candidate(val slug: String, val title: String)
     private data class MegaPlayEmbed(val url: String, val referer: String, val skip: SkipTimes?)
@@ -84,11 +86,22 @@ class AnivexaClient(
     private val senshi = SenshiProvider(client, json)
     private val aniBd = AniBdProvider(client, json)
     private val kickAssAnime = KickAssAnimeProvider(client, json)
+    private val hanime = HanimeProvider(context, client, json, cache)
+
+    /** The device-side hanime library, also used to seed hentai results into search. */
+    suspend fun hanimeCatalogue(): List<HanimeVideo> = hanime.catalogue()
+
+    /** Pull a newer catalogue than the one shipped in the APK. */
+    suspend fun refreshHanimeCatalogue() = hanime.refresh()
 
     suspend fun getEpisodes(
         anilistId: Int,
         seedMedia: Media? = null,
-        providers: List<String> = ProviderCatalog.anivexaProviders,
+        // Adult-only providers drop out unless the viewer has asked to see adult content, so a
+        // title that happens to match one by name never offers it uninvited.
+        providers: List<String> = ProviderCatalog.anivexaProvidersFor(
+            com.miruronative.data.settings.SettingsStore.hideAdultContent.value,
+        ),
     ): EpisodesResult = withContext(Dispatchers.IO) {
         // The caller (repository) has usually already fetched this AniList Media through the shared
         // 24h cache; reuse it so a cold catalog doesn't fire a second, rate-limit-exposed request.
@@ -143,6 +156,7 @@ class AnivexaClient(
             "animegg" -> animegg(media, request.audio, request.episode)
             "anineko" -> anineko(media, request.audio, request.episode)
             "2dhive" -> twoDhive(media, request.audio, request.episode)
+            "hanime" -> hanime.sources(media, request.episode)
             else -> error("Unsupported native provider: ${request.provider}")
         }
     }
@@ -177,6 +191,7 @@ class AnivexaClient(
         "animegg" -> animeGgAvailability(media)
         "anineko" -> aniNekoAvailability(media)
         "2dhive" -> twoDhiveAvailability(media, count)
+        "hanime" -> hanime.episodeAvailability(media)
         else -> error("Unsupported native provider catalog: $provider")
     }
 

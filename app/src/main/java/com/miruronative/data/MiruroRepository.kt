@@ -10,6 +10,7 @@ import com.miruronative.data.model.MediaPage
 import com.miruronative.data.model.HomeCollections
 import com.miruronative.data.model.SourcesResult
 import com.miruronative.data.cache.AppCache
+import com.miruronative.data.remote.searchHanimeCatalogue
 import com.miruronative.data.auth.AuthManager
 import com.miruronative.data.model.DiscoverOptions
 import com.miruronative.data.model.SkipTimes
@@ -135,8 +136,41 @@ class MiruroRepository(
         return if (hideAdult) schedules.filterNot { it.media?.isAdult == true } else schedules
     }
 
-    suspend fun search(query: String, page: Int = 1, force: Boolean = false): MediaPage =
-        mediaPage("search:${query.trim().lowercase()}:$page", SEARCH_TTL, force) { aniList.search(query, page, hideAdult = hideAdult) }
+    suspend fun search(query: String, page: Int = 1, force: Boolean = false): MediaPage {
+        val remote = mediaPage("search:${query.trim().lowercase()}:$page", SEARCH_TTL, force) {
+            aniList.search(query, page, hideAdult = hideAdult)
+        }
+        return remote.copy(items = withHanimeResults(query, remote.items, page))
+    }
+
+    /**
+     * Refresh the hanime library against the network. A snapshot ships in the APK so search works
+     * from the first launch, but hanime keeps releasing — without this the app would only ever
+     * know the titles that existed when the release was cut.
+     */
+    suspend fun warmHanimeCatalogue() {
+        if (hideAdult) return
+        anivexa.refreshHanimeCatalogue()
+    }
+
+    /**
+     * hanime's library is held on the device, so its hits are folded into ordinary search results
+     * rather than living behind a section of their own. They are tagged adult, which is why this
+     * only runs once the viewer has turned adult content on, and only on the first page — the
+     * catalogue is searched whole, so there is nothing further to page through.
+     */
+    private suspend fun withHanimeResults(query: String, remote: List<Media>, page: Int): List<Media> {
+        if (hideAdult || page != 1 || query.isBlank()) return remote
+        val catalogue = runCatching { anivexa.hanimeCatalogue() }.getOrElse {
+            DiagnosticsLog.throwable("Hanime catalogue unavailable for search", it)
+            return remote
+        }
+        val hits = searchHanimeCatalogue(query, catalogue)
+        if (hits.isEmpty()) return remote
+        DiagnosticsLog.event("Hanime search hits=${hits.size} query=${query.take(40)}")
+        // AniList first: a plain title search should still lead with the mainstream match.
+        return (remote + hits).distinctBy { it.id }
+    }
 
     suspend fun discover(filters: DiscoverFilters, page: Int = 1, force: Boolean = false): MediaPage =
         mediaPage("discover:${filters.cacheKey()}:$page", COLLECTION_TTL, force) { aniList.discover(filters, page, hideAdult = hideAdult) }

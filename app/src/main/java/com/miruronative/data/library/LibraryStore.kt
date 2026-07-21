@@ -88,7 +88,10 @@ object LibraryStore {
         persist(KEY_WATCHLIST, updated, WatchlistEntry.serializer())
         ReleaseSyncScheduler.runNow(appContext)
         val service = AccountService.active
-        if (service != null && SettingsStore.syncSavedToAniList.value) {
+        // Catalogue-native hanime entries carry a negative, hanime-owned id. Posting one to
+        // AniList or MAL would be a request about somebody else's anime, so they never sync.
+        val syncable = !com.miruronative.data.remote.isHanimeMediaId(entry.anilistId)
+        if (service != null && syncable && SettingsStore.syncSavedToAniList.value) {
             val saved = updated.any { it.anilistId == entry.anilistId }
             scope.launch {
                 aniListSyncMutex.withLock {
