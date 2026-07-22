@@ -24,6 +24,9 @@ streams play with ExoPlayer; embed providers and fallback playback use WebView.
   <a href="showcase/mobile/05-watch.webp"><img src="showcase/mobile/05-watch.webp" width="180" alt="Watch screen with episode list" /></a>
   <a href="showcase/mobile/06-player-controls.webp"><img src="showcase/mobile/06-player-controls.webp" width="180" alt="Player controls with subtitles and casting" /></a>
 </p>
+<p align="center">
+  <a href="showcase/mobile/07-library.webp"><img src="showcase/mobile/07-library.webp" width="180" alt="Library with watchlist and continue watching" /></a>
+</p>
 
 ## Features
 
@@ -34,9 +37,9 @@ streams play with ExoPlayer; embed providers and fallback playback use WebView.
   AniNeko, and 2DHive.
 - Native HLS playback with subtitles, skip intro, and auto advance.
 - WebView playback for embed providers and fallback player routes.
-- AniList login with watching, planning, paused, and completed list views.
+- AniList or MyAnimeList login with watching, planning, paused, and completed list views.
 - Watch history, continue-watching resume positions, local watchlist, and optional
-  AniList episode progress sync.
+  AniList/MyAnimeList episode progress sync.
 - Adaptive Compose UI for phone and TV-style layouts.
 
 ## Project Structure
@@ -47,7 +50,8 @@ streams play with ExoPlayer; embed providers and fallback playback use WebView.
 | `app/src/main/java/com/miruronative/data/remote` | AniList, Miruro pipe, and provider clients |
 | `app/src/main/java/com/miruronative/ui` | Compose screens and player UI |
 | `docs/PIPE_PROTOCOL.md` | Notes about the Miruro pipe format |
-| `showcase/mobile` | Six optimized 540×1062 WebP screenshots |
+| `showcase/mobile` | Seven optimized 540×1062 WebP screenshots |
+| `docs/` | GitHub Pages landing page (https://kompoti121.github.io/anilili/) |
 
 ## Build
 
@@ -85,4 +89,4 @@ keeps the update-compatible name `anilili.apk`. All three support Android/Fire O
 
 - `local.properties`, build output, IDE files, Graphify output, temporary folders, and old API
   bundles are intentionally ignored.
-- The showcase folder is intentionally limited to the six mobile screenshots shown above.
+- The showcase folder is intentionally limited to the seven mobile screenshots shown above.
