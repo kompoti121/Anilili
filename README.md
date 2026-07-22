@@ -23,17 +23,13 @@ streams play with ExoPlayer; embed providers and fallback playback use WebView.
 
 ## Screenshots
 
-| Home | Browse | Search |
+| Home | Search | Details |
 | :---: | :---: | :---: |
-| <a href="showcase/mobile/01-home.webp"><img src="showcase/mobile/01-home.webp" width="200" alt="Anilili home screen" /></a> | <a href="showcase/mobile/02-browse.webp"><img src="showcase/mobile/02-browse.webp" width="200" alt="Anime browse screen" /></a> | <a href="showcase/mobile/03-search.webp"><img src="showcase/mobile/03-search.webp" width="200" alt="Anime search results" /></a> |
+| <a href="showcase/mobile/01-home.webp"><img src="showcase/mobile/01-home.webp" width="200" alt="Anilili home screen" /></a> | <a href="showcase/mobile/03-search.webp"><img src="showcase/mobile/03-search.webp" width="200" alt="Anime search and browse" /></a> | <a href="showcase/mobile/04-details.webp"><img src="showcase/mobile/04-details.webp" width="200" alt="Anime details and server selection" /></a> |
 
-| Details | Watch | Player controls |
+| Watch | Player controls | Library |
 | :---: | :---: | :---: |
-| <a href="showcase/mobile/04-details.webp"><img src="showcase/mobile/04-details.webp" width="200" alt="Anime details and server selection" /></a> | <a href="showcase/mobile/05-watch.webp"><img src="showcase/mobile/05-watch.webp" width="200" alt="Watch screen with episode list" /></a> | <a href="showcase/mobile/06-player-controls.webp"><img src="showcase/mobile/06-player-controls.webp" width="200" alt="Player controls with subtitles and casting" /></a> |
-
-| Library |
-| :---: |
-| <a href="showcase/mobile/07-library.webp"><img src="showcase/mobile/07-library.webp" width="200" alt="Library with watchlist and continue watching" /></a> |
+| <a href="showcase/mobile/05-watch.webp"><img src="showcase/mobile/05-watch.webp" width="200" alt="Watch screen with episode list" /></a> | <a href="showcase/mobile/06-player-controls.webp"><img src="showcase/mobile/06-player-controls.webp" width="200" alt="Player controls with subtitles and casting" /></a> | <a href="showcase/mobile/07-library.webp"><img src="showcase/mobile/07-library.webp" width="200" alt="Library with watchlist and continue watching" /></a> |
 
 ## Features
 
@@ -57,7 +53,7 @@ streams play with ExoPlayer; embed providers and fallback playback use WebView.
 | `app/src/main/java/com/miruronative/data/remote` | AniList, Miruro pipe, and provider clients |
 | `app/src/main/java/com/miruronative/ui` | Compose screens and player UI |
 | `docs/PIPE_PROTOCOL.md` | Notes about the Miruro pipe format |
-| `showcase/mobile` | Seven optimized 540×1062 WebP screenshots |
+| `showcase/mobile` | Six optimized 540×1062 WebP screenshots |
 | `docs/` | GitHub Pages landing page (https://kompoti121.github.io/Anilili/) |
 
 ## Build
@@ -100,4 +96,4 @@ Matching is case-insensitive, so lowercase assets from releases before v0.1.34 s
 
 - `local.properties`, build output, IDE files, Graphify output, temporary folders, and old API
   bundles are intentionally ignored.
-- The showcase folder is intentionally limited to the seven mobile screenshots shown above.
+- The showcase folder is intentionally limited to the six mobile screenshots shown above.
