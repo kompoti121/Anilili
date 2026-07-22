@@ -451,11 +451,26 @@ class MiruroRepository(
         forceRefresh = force,
     ) { aniList.animeInfo(id) }
 
-    /** Konoha CDN episode metadata (titles, thumbnails); empty when unknown or on failure. */
-    suspend fun konohaEpisodes(anilistId: Int): List<KonohaEpisode> =
-        runCatching { konoha.episodes(anilistId) }
+    /**
+     * Konoha CDN episode metadata (episode titles, TMDB stills); empty when unknown or on failure.
+     *
+     * Skipped for adult titles. Konoha's data is TMDB-derived and TMDB does not index hentai, so a
+     * hit on an adult AniList id is a false positive: it returns some unrelated show's episodes and
+     * cover stills — a 1930s period drama's, in one measured case — which then decorate a hentai
+     * episode list. Better no metadata than another title's. Non-adult titles are unaffected.
+     */
+    suspend fun konohaEpisodes(anilistId: Int): List<KonohaEpisode> {
+        // Catalogue-native entries (hanime) use negative ids: no AniList record to check and no
+        // Konoha entry, so skip the lookup — and the doomed animeInfo call a negative id would make.
+        if (anilistId < 0) return emptyList()
+        if (animeInfo(anilistId)?.isAdult == true) {
+            DiagnosticsLog.event("Konoha skipped for adult title id=$anilistId (TMDB has no hentai)")
+            return emptyList()
+        }
+        return runCatching { konoha.episodes(anilistId) }
             .onFailure { DiagnosticsLog.throwable("Konoha episodes failed id=$anilistId", it) }
             .getOrDefault(emptyList())
+    }
 
     /** Walks AniList's PREQUEL/SEQUEL chain so every season is reachable from one detail page. */
     suspend fun animeSeries(root: Media): List<Media> {

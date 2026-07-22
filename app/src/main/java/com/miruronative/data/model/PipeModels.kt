@@ -70,6 +70,19 @@ data class StreamItem(
     val width: Int?,
     val height: Int?,
     val playlistKey: String? = null,
+    /**
+     * Extra request headers this stream's CDN needs on every manifest and segment fetch, beyond
+     * the Referer/Origin pair derived from [referer]. Carries short-lived per-playback tokens
+     * (Hentai Haven's `X-Video-*` trio), so it is resolved fresh at playback rather than cached.
+     */
+    val headers: Map<String, String> = emptyMap(),
+    /**
+     * Play this source over the plain HTTP transport instead of Cronet. Hentai Haven's CDN trips
+     * an assertion inside `CronetDataSource.read` a second into playback ("Source error"), while
+     * the identical manifest plays clean on `DefaultHttpDataSource` — measured on device, and the
+     * segments themselves verify as valid fMP4 either way.
+     */
+    val avoidCronet: Boolean = false,
 ) {
     val isHls: Boolean get() = type.equals("hls", true) || url.contains(".m3u8")
     val isEmbed: Boolean get() = type.equals("embed", true)

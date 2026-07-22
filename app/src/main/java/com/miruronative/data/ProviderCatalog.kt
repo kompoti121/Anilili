@@ -19,7 +19,7 @@ object ProviderCatalog {
     // Anivexa providers we query (reliable, self-hosted sources).
     val anivexaProviders = listOf(
         "senshi", "anibd", "anikoto", "kaa", "allanime", "animekai", "reanime", "anizone", "animegg", "anineko", "2dhive",
-        "hanime",
+        "hanime", "hentaihaven",
     )
 
     /**
@@ -27,7 +27,7 @@ object ProviderCatalog {
      * the server picker while "Hide adult content" is on, so a viewer who has not opted in is
      * never offered one — even on a title that happens to match by name.
      */
-    val adultProviders = setOf("hanime")
+    val adultProviders = setOf("hanime", "hentaihaven")
 
     fun isAdultOnly(provider: String): Boolean = provider in adultProviders
 
@@ -79,6 +79,7 @@ object ProviderCatalog {
         "allanime" -> "AllAnime"
         "animekai" -> "AnimeKai"
         "kaa" -> "KickAssAnime"
+        "hentaihaven" -> "Hentai Haven"
         else -> provider.replaceFirstChar { it.uppercase() }
     }
 }

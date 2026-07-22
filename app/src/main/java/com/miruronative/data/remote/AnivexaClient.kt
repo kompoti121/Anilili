@@ -109,6 +109,7 @@ class AnivexaClient(
     private val aniBd = AniBdProvider(providerClient, json)
     private val kickAssAnime = KickAssAnimeProvider(providerClient, json)
     private val hanime = HanimeProvider(context, providerClient, json, cache)
+    private val hentaiHaven = HentaiHavenProvider(providerClient, json)
 
     /** The device-side hanime library, also used to seed hentai results into search. */
     suspend fun hanimeCatalogue(): List<HanimeVideo> = hanime.catalogue()
@@ -193,6 +194,7 @@ class AnivexaClient(
             "anineko" -> anineko(media, request.audio, request.episode)
             "2dhive" -> twoDhive(media, request.audio, request.episode)
             "hanime" -> hanime.sources(media, request.episode)
+            "hentaihaven" -> runInterruptible(Dispatchers.IO) { hentaiHaven.sources(media, request.episode) }
             else -> error("Unsupported native provider: ${request.provider}")
         }
     }
@@ -228,6 +230,7 @@ class AnivexaClient(
         "anineko" -> aniNekoAvailability(media)
         "2dhive" -> twoDhiveAvailability(media, count)
         "hanime" -> hanime.episodeAvailability(media)
+        "hentaihaven" -> runInterruptible(Dispatchers.IO) { hentaiHaven.episodeAvailability(media) }
         else -> error("Unsupported native provider catalog: $provider")
     }
 

@@ -74,9 +74,16 @@ class PlaybackService : MediaSessionService() {
             defaultHttpFactory
         }
         activeHttpFactory = httpFactory
+        plainHttpFactory = defaultHttpFactory
+        // Cronet everywhere except sources known to trip it, which fall back to the plain stack.
+        // Both factories are kept configured so the choice can change between episodes.
+        val upstreamDataSource = DataSource.Factory {
+            val factory = if (activeAvoidCronet) defaultHttpFactory else httpFactory
+            factory.createDataSource()
+        }
         val cacheDataSource = CacheDataSource.Factory()
             .setCache(MediaCache.get(this))
-            .setUpstreamDataSourceFactory(httpFactory)
+            .setUpstreamDataSourceFactory(upstreamDataSource)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         val playbackDataSource = DataSource.Factory {
             FlixcloudPlaylistDataSource(cacheDataSource.createDataSource()) { activePlaylistKey }
@@ -350,6 +357,13 @@ class PlaybackService : MediaSessionService() {
 
         @Volatile
         private var activeHttpFactory: HttpDataSource.Factory? = null
+
+        /** The plain stack, kept alongside Cronet for sources Cronet cannot read. */
+        @Volatile
+        private var plainHttpFactory: HttpDataSource.Factory? = null
+
+        @Volatile
+        private var activeAvoidCronet: Boolean = false
         @Volatile
         private var activeUserAgent: String = FALLBACK_PLAYER_USER_AGENT
         @Volatile
@@ -397,8 +411,14 @@ class PlaybackService : MediaSessionService() {
         }
 
         /** Applies per-provider headers before Media3 creates manifest and segment data sources. */
-        fun configureRequestHeaders(referer: String?, playlistKey: String?) {
+        fun configureRequestHeaders(
+            referer: String?,
+            playlistKey: String?,
+            extraHeaders: Map<String, String> = emptyMap(),
+            avoidCronet: Boolean = false,
+        ) {
             activePlaylistKey = playlistKey
+            activeAvoidCronet = avoidCronet
             val safeReferer = referer ?: "https://www.miruro.to/"
             val refererUri = android.net.Uri.parse(safeReferer)
             val origin = refererUri.let { uri ->
@@ -420,13 +440,17 @@ class PlaybackService : MediaSessionService() {
                     "X-Requested-With" to "com.miruronative",
                 )
             }
-            activeHttpFactory?.setDefaultRequestProperties(
-                headers,
-            )
+            // Provider-supplied last so a stream that carries its own auth token wins over the
+            // defaults derived from the referer.
+            headers += extraHeaders
+            // Both stacks stay configured; the upstream factory picks between them per stream.
+            activeHttpFactory?.setDefaultRequestProperties(headers)
+            plainHttpFactory?.setDefaultRequestProperties(headers)
             DiagnosticsLog.event(
                 "PlaybackService.configureRequestHeaders " +
                     "refererHost=${android.net.Uri.parse(safeReferer).host ?: "unknown"} " +
-                    "playlistKey=${playlistKey != null}",
+                    "playlistKey=${playlistKey != null} extraHeaders=${extraHeaders.keys.sorted()} " +
+                    "avoidCronet=$avoidCronet",
             )
         }
     }

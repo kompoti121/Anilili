@@ -364,7 +364,12 @@ fun PlayerSurface(
                 "height=${activeStream.declaredVideoHeight() ?: "auto"} subtitles=${subtitles.size} " +
                 "startMs=$nextStartPositionMs",
         )
-        PlaybackService.configureRequestHeaders(activeStream.referer, activeStream.playlistKey)
+        PlaybackService.configureRequestHeaders(
+            activeStream.referer,
+            activeStream.playlistKey,
+            activeStream.headers,
+            activeStream.avoidCronet,
+        )
         val watchRoute = Routes.watch(animeId, provider, category, episode)
         val metadata = MediaMetadata.Builder()
             .setTitle(episodeTitle)
