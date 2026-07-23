@@ -229,6 +229,16 @@ class WatchViewModel : ViewModel() {
                         DiagnosticsLog.event("Watch category upgraded to dub (prefer dub) id=$id")
                     }
                 }
+                // The mirror case: launches carrying category=dub (prefer-dub defaults from
+                // Watch Now, seeded Continue Watching, or stale history) for a title no provider
+                // dubs. Without this the spine comes up empty and the screen dies with
+                // "No episodes for this title" even though subs exist.
+                if (category == Category.DUB && merged.providers.none { it.dub.isNotEmpty() }) {
+                    if (merged.providers.any { it.sub.isNotEmpty() }) {
+                        category = Category.SUB
+                        DiagnosticsLog.event("Watch category fell back to sub (no dub catalog) id=$id")
+                    }
+                }
                 repo.animeInfo(id)?.let { info ->
                     seriesTitle = info.title.preferred
                     artworkUrl = info.coverImage.best

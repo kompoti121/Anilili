@@ -215,6 +215,41 @@ fun EmbedWebView(
         }
     }
 
+    // Second reporting channel alongside the AniliProgress bridge: poll the main frame for the
+    // video's state. kwik intermittently serves a page variant the document-start bridge never
+    // fires on, which used to demote the player to the reduced fallback bar (inverted play/pause
+    // guess, no double-tap seek, no skip intro). One probe per second is negligible, and both
+    // channels write the same state so they can coexist.
+    LaunchedEffect(webView, activeUrl, loadError) {
+        val web = webView ?: return@LaunchedEffect
+        if (loadError != null) return@LaunchedEffect
+        var probeActivated = false
+        while (true) {
+            delay(1_000)
+            web.evaluateJavascript(VIDEO_PROBE_JS) { raw ->
+                val parts = raw?.trim('"')?.split(',') ?: return@evaluateJavascript
+                if (parts.size != 5) return@evaluateJavascript
+                val positionSec = parts[0].toDoubleOrNull() ?: return@evaluateJavascript
+                val durationSec = parts[1].toDoubleOrNull() ?: return@evaluateJavascript
+                val playing = parts[2] == "1"
+                val muted = parts[3] == "1"
+                val volume = parts[4].toDoubleOrNull() ?: 1.0
+                if (durationSec <= 0) return@evaluateJavascript
+                if (!probeActivated && !webPlaybackAvailable) {
+                    probeActivated = true
+                    DiagnosticsLog.event("EmbedWebView main-frame probe activated full controls")
+                }
+                webPlaybackAvailable = true
+                positionMs = (positionSec * 1000).toLong()
+                durationMs = (durationSec * 1000).toLong()
+                webIsPlaying = playing
+                fallbackIsPlaying = playing
+                webVolume = if (muted) 0f else volume.toFloat().coerceIn(0f, 1f)
+                if (playing) currentOnProgress?.invoke(positionMs, durationMs)
+            }
+        }
+    }
+
     LaunchedEffect(fallbackControlsActive, fallbackControlsVisible, fallbackInteraction) {
         if (!fallbackControlsActive || !fallbackControlsVisible) return@LaunchedEffect
         delay(4_000)
@@ -1419,6 +1454,43 @@ internal val HIDE_PROVIDER_CHROME_JS = """
 """.trimIndent()
 
 internal val PROVIDER_CHROME_ORIGIN_RULES = setOf("*")
+
+/**
+ * Main-frame probe for providers whose page variant defeats the document-start bridge (kwik
+ * serves such a variant intermittently: the video never reports through AniliProgress, which
+ * used to demote the player to the reduced fallback bar — no double-tap seek, no skip intro,
+ * and a play/pause button that only guessed its state). Returns "pos,dur,playing,muted,volume"
+ * or "none"; same-origin iframes are walked, cross-origin ones stay the bridge's job.
+ */
+private val VIDEO_PROBE_JS = """
+    (function() {
+      function find(root) {
+        var video = root.querySelector('video');
+        if (video) return video;
+        var frames = root.querySelectorAll('iframe');
+        for (var i = 0; i < frames.length; i++) {
+          try {
+            if (frames[i].contentDocument) {
+              var nested = find(frames[i].contentDocument);
+              if (nested) return nested;
+            }
+          } catch (e) { /* cross-origin */ }
+        }
+        return null;
+      }
+      try {
+        var v = find(document);
+        if (!v) return 'none';
+        return [
+          v.currentTime || 0,
+          isFinite(v.duration) ? v.duration : 0,
+          v.paused ? 0 : 1,
+          v.muted ? 1 : 0,
+          v.volume
+        ].join(',');
+      } catch (e) { return 'none'; }
+    })();
+""".trimIndent()
 
 private fun installWebPlayerBootstrap(webView: WebView) {
     if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
