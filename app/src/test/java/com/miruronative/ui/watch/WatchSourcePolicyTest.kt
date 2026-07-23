@@ -150,6 +150,37 @@ class WatchSourcePolicyTest {
     }
 
     @Test
+    fun `rapid tv seeks accumulate and stay inside the episode`() {
+        val first = tvSeekTargetMs(currentPositionMs = 30_000L, durationMs = 60_000L, offsetMs = TV_SEEK_STEP_MS)
+        val second = tvSeekTargetMs(currentPositionMs = first, durationMs = 60_000L, offsetMs = TV_SEEK_STEP_MS)
+
+        assertEquals(50_000L, second)
+        assertEquals(60_000L, tvSeekTargetMs(second, 60_000L, 20_000L))
+        assertEquals(0L, tvSeekTargetMs(5_000L, 60_000L, -TV_SEEK_STEP_MS))
+    }
+
+    @Test
+    fun `only a recent seek io error receives same stream recovery`() {
+        assertTrue(shouldRecoverSeekError(errorCode = 2_002, elapsedSinceSeekMs = 500L, recoveryAlreadyAttempted = false))
+        assertEquals(
+            false,
+            shouldRecoverSeekError(errorCode = 2_002, elapsedSinceSeekMs = 500L, recoveryAlreadyAttempted = true),
+        )
+        assertEquals(
+            false,
+            shouldRecoverSeekError(
+                errorCode = 2_002,
+                elapsedSinceSeekMs = SEEK_ERROR_RECOVERY_WINDOW_MS + 1L,
+                recoveryAlreadyAttempted = false,
+            ),
+        )
+        assertEquals(
+            false,
+            shouldRecoverSeekError(errorCode = 4_001, elapsedSinceSeekMs = 500L, recoveryAlreadyAttempted = false),
+        )
+    }
+
+    @Test
     fun `quality height is recovered from provider label`() {
         assertEquals(1080, declaredVideoHeight("AllAnime 1080p Yt-mp4"))
         assertEquals(720, declaredVideoHeight("720P"))

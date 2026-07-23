@@ -723,7 +723,10 @@ class WatchViewModel : ViewModel() {
             )
         }
 
-        failedProviders += data.provider
+        if (!failedProviders.add(data.provider)) {
+            DiagnosticsLog.event("Watch ignored duplicate provider failure provider=${data.provider}")
+            return
+        }
         unavailableSources += EpisodeSourceKey(data.current.number, data.provider, data.category)
         launchResolve(data.current.number) {
             _state.value = UiState.Success(

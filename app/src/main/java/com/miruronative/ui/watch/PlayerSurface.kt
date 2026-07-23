@@ -3,6 +3,8 @@ package com.miruronative.ui.watch
 import android.content.ComponentName
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.KeyEvent as AndroidKeyEvent
 import android.view.View
 import androidx.annotation.OptIn
 import androidx.compose.foundation.BorderStroke
@@ -245,6 +247,11 @@ fun PlayerSurface(
     // format is nominally supported, and a provider failover for a device-side decode hiccup
     // needlessly restarts the episode on another server.
     var decoderRetryDone by remember(stream.url) { mutableStateOf(false) }
+    var pendingTvSeekTargetMs by remember(stream.url) { mutableStateOf<Long?>(null) }
+    var tvSeekRequest by remember(stream.url) { mutableIntStateOf(0) }
+    var lastUserSeekRealtimeMs by remember(stream.url) { mutableLongStateOf(Long.MIN_VALUE) }
+    var lastUserSeekTargetMs by remember(stream.url) { mutableLongStateOf(startPositionMs.coerceAtLeast(0L)) }
+    var seekErrorRecoveryDone by remember(stream.url) { mutableStateOf(false) }
     val nativeQualityStreams = remember(stream.url, qualityStreams) {
         (listOf(stream) + qualityStreams)
             .filterNot(StreamItem::isEmbed)
@@ -279,7 +286,7 @@ fun PlayerSurface(
         controller?.let(::clearVideoSelection)
     }
 
-    DisposableEffect(controller) {
+    DisposableEffect(controller, activeStream.url) {
         val activeController = controller
         if (activeController == null) {
             onDispose { }
@@ -305,6 +312,15 @@ fun PlayerSurface(
 
                 override fun onPlayerError(error: PlaybackException) {
                     DiagnosticsLog.throwable("PlayerSurface player error code=${error.errorCodeName}", error)
+                    val failedMediaId = activeController.currentMediaItem?.mediaId.orEmpty()
+                    if (failedMediaId.isNotBlank() && failedMediaId != activeStream.url) {
+                        DiagnosticsLog.event(
+                            "PlayerSurface ignored stale error " +
+                                "failedHost=${runCatching { Uri.parse(failedMediaId).host }.getOrNull() ?: "unknown"} " +
+                                "activeHost=${activeStream.host()}",
+                        )
+                        return
+                    }
                     if (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED && !decoderRetryDone) {
                         decoderRetryDone = true
                         val resumeAt = activeController.currentPosition.coerceAtLeast(0L)
@@ -321,9 +337,32 @@ fun PlayerSurface(
                         )
                         return
                     }
+                    val elapsedSinceSeekMs = if (lastUserSeekRealtimeMs == Long.MIN_VALUE) {
+                        Long.MAX_VALUE
+                    } else {
+                        SystemClock.elapsedRealtime() - lastUserSeekRealtimeMs
+                    }
+                    if (
+                        shouldRecoverSeekError(
+                            errorCode = error.errorCode,
+                            elapsedSinceSeekMs = elapsedSinceSeekMs,
+                            recoveryAlreadyAttempted = seekErrorRecoveryDone,
+                        )
+                    ) {
+                        seekErrorRecoveryDone = true
+                        val resumeAt = lastUserSeekTargetMs.coerceAtLeast(0L)
+                        activeController.prepare()
+                        activeController.seekTo(resumeAt)
+                        activeController.play()
+                        DiagnosticsLog.event(
+                            "PlayerSurface seek I/O error; retrying same stream " +
+                                "code=${error.errorCodeName} resumeMs=$resumeAt",
+                        )
+                        return
+                    }
                     currentOnError(
                         error.localizedMessage ?: "Playback failed",
-                        activeController.currentMediaItem?.mediaId.orEmpty(),
+                        failedMediaId,
                         activeController.currentPosition.coerceAtLeast(0L),
                     )
                 }
@@ -412,10 +451,45 @@ fun PlayerSurface(
 
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
+    val queueTvSeek: (Long) -> Unit = { offsetMs ->
+        controller?.let { activeController ->
+            val knownDurationMs = activeController.duration
+                .takeIf { it != C.TIME_UNSET && it > 0L }
+                ?: durationMs
+            val targetMs = tvSeekTargetMs(
+                currentPositionMs = pendingTvSeekTargetMs
+                    ?: activeController.currentPosition.coerceAtLeast(0L),
+                durationMs = knownDurationMs,
+                offsetMs = offsetMs,
+            )
+            pendingTvSeekTargetMs = targetMs
+            positionMs = targetMs
+            tvSeekRequest++
+            DiagnosticsLog.event(
+                "PlayerSurface TV seek queued offsetMs=$offsetMs targetMs=$targetMs request=$tvSeekRequest",
+            )
+        }
+    }
+    LaunchedEffect(controller, activeStream.url, tvSeekRequest) {
+        val activeController = controller ?: return@LaunchedEffect
+        val targetMs = pendingTvSeekTargetMs ?: return@LaunchedEffect
+        // A remote can generate presses much faster than a TV decoder can cancel and restart its
+        // segment requests. Commit only after the short burst settles.
+        delay(TV_SEEK_COALESCE_MS)
+        if (pendingTvSeekTargetMs != targetMs) return@LaunchedEffect
+        lastUserSeekTargetMs = targetMs
+        lastUserSeekRealtimeMs = SystemClock.elapsedRealtime()
+        seekErrorRecoveryDone = false
+        pendingTvSeekTargetMs = null
+        activeController.seekTo(targetMs)
+        DiagnosticsLog.event("PlayerSurface TV seek committed targetMs=$targetMs")
+    }
     LaunchedEffect(controller) {
         val activeController = controller ?: return@LaunchedEffect
         while (isActive) {
-            positionMs = activeController.currentPosition.coerceAtLeast(0)
+            if (pendingTvSeekTargetMs == null) {
+                positionMs = activeController.currentPosition.coerceAtLeast(0)
+            }
             durationMs = activeController.duration.coerceAtLeast(0)
             if (activeController.isPlaying) {
                 onProgress?.invoke(positionMs, durationMs)
@@ -632,6 +706,17 @@ fun PlayerSurface(
             .focusRequester(tvPlayerFocus)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val mediaSeekOffsetMs = when (event.nativeKeyEvent.keyCode) {
+                    AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> -TV_SEEK_STEP_MS
+                    AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> TV_SEEK_STEP_MS
+                    else -> null
+                }
+                if (mediaSeekOffsetMs != null) {
+                    queueTvSeek(mediaSeekOffsetMs)
+                    tvControlsVisible = true
+                    tvControlsInteraction++
+                    return@onPreviewKeyEvent true
+                }
                 if (!opensTvPlayerControls(event.key)) return@onPreviewKeyEvent false
                 // Preview handlers on this root run before the focused child sees the key, so
                 // while an overlay owns the remote its input must pass through untouched.
@@ -639,6 +724,10 @@ fun PlayerSurface(
                 tvControlsInteraction++
                 if (!tvControlsVisible) {
                     DiagnosticsLog.event("PlayerSurface TV controls opened key=${event.key}")
+                    when (event.key) {
+                        androidx.compose.ui.input.key.Key.DirectionLeft -> queueTvSeek(-TV_SEEK_STEP_MS)
+                        androidx.compose.ui.input.key.Key.DirectionRight -> queueTvSeek(TV_SEEK_STEP_MS)
+                    }
                     tvControlsVisible = true
                     true
                 } else {
@@ -930,7 +1019,7 @@ fun PlayerSurface(
                 onPrevious = { currentOnPreviousEpisode?.invoke() },
                 onRewind = {
                     DiagnosticsLog.event("PlayerSurface TV control rewind")
-                    controller?.seekBack()
+                    queueTvSeek(-TV_SEEK_STEP_MS)
                 },
                 onPlayPause = {
                     DiagnosticsLog.event("PlayerSurface TV control playPause")
@@ -938,7 +1027,7 @@ fun PlayerSurface(
                 },
                 onForward = {
                     DiagnosticsLog.event("PlayerSurface TV control forward")
-                    controller?.seekForward()
+                    queueTvSeek(TV_SEEK_STEP_MS)
                 },
                 onNext = currentOnNextEpisode,
                 onToggleMute = {

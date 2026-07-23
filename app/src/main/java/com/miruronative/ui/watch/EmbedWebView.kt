@@ -158,6 +158,8 @@ fun EmbedWebView(
     val currentPendingSeekMs by rememberUpdatedState(pendingSeekMs)
     var positionMs by remember(url) { mutableLongStateOf(startPositionMs) }
     var durationMs by remember(url) { mutableLongStateOf(0L) }
+    var pendingTvSeekTargetMs by remember(activeUrl) { mutableStateOf<Long?>(null) }
+    var tvSeekRequest by remember(activeUrl) { mutableIntStateOf(0) }
     var webIsPlaying by remember(url) { mutableStateOf(false) }
     var webVolume by remember(url) { mutableStateOf(1f) }
     var lastAudibleVolume by remember(url) { mutableStateOf(1f) }
@@ -189,6 +191,28 @@ fun EmbedWebView(
     val outroEndMs = skip?.outroEnd?.times(1000)?.toLong()
     var introAutoSkipped by remember(activeUrl, introStartMs, introEndMs) { mutableStateOf(false) }
     var outroAutoHandled by remember(activeUrl, outroStartMs, outroEndMs) { mutableStateOf(false) }
+    val queueTvSeek: (Long) -> Unit = { offsetMs ->
+        val targetMs = tvSeekTargetMs(
+            currentPositionMs = pendingTvSeekTargetMs ?: positionMs,
+            durationMs = durationMs,
+            offsetMs = offsetMs,
+        )
+        pendingTvSeekTargetMs = targetMs
+        positionMs = targetMs
+        tvSeekRequest++
+        DiagnosticsLog.event(
+            "EmbedWebView TV seek queued offsetMs=$offsetMs targetMs=$targetMs request=$tvSeekRequest",
+        )
+    }
+    val currentQueueTvSeek by rememberUpdatedState(queueTvSeek)
+    LaunchedEffect(activeUrl, webView, tvSeekRequest) {
+        val targetMs = pendingTvSeekTargetMs ?: return@LaunchedEffect
+        delay(TV_SEEK_COALESCE_MS)
+        if (pendingTvSeekTargetMs != targetMs) return@LaunchedEffect
+        pendingTvSeekTargetMs = null
+        seekWebVideo(webView, targetMs)
+        DiagnosticsLog.event("EmbedWebView TV seek committed targetMs=$targetMs")
+    }
 
     DisposableEffect(webView) {
         val web = webView
@@ -575,6 +599,10 @@ fun EmbedWebView(
                                 when {
                                     device.isTv && opensTvPlayerControls(event.keyCode) -> {
                                         mainHandler.post {
+                                            when (event.keyCode) {
+                                                KeyEvent.KEYCODE_DPAD_LEFT -> currentQueueTvSeek(-TV_SEEK_STEP_MS)
+                                                KeyEvent.KEYCODE_DPAD_RIGHT -> currentQueueTvSeek(TV_SEEK_STEP_MS)
+                                            }
                                             tvControlsVisible = true
                                             tvControlsInteraction++
                                         }
@@ -596,13 +624,11 @@ fun EmbedWebView(
                                         return true
                                     }
                                     event.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                                        mainHandler.post {
-                                            seekWebVideo(this, (currentPositionMs - 10_000L).coerceAtLeast(0L))
-                                        }
+                                        mainHandler.post { currentQueueTvSeek(-TV_SEEK_STEP_MS) }
                                         return true
                                     }
                                     event.keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                                        mainHandler.post { seekWebVideo(this, currentPositionMs + 10_000L) }
+                                        mainHandler.post { currentQueueTvSeek(TV_SEEK_STEP_MS) }
                                         return true
                                     }
                                     event.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT && currentHasNextEpisode -> {
@@ -946,13 +972,13 @@ fun EmbedWebView(
                 hasNext = hasNextEpisode && currentOnNextEpisode != null,
                 playPauseFocusRequester = tvPlayPauseFocus,
                 onPrevious = { currentOnPreviousEpisode?.invoke() },
-                onRewind = { seekWebVideo(webView, (positionMs - 10_000L).coerceAtLeast(0L)) },
+                onRewind = { queueTvSeek(-TV_SEEK_STEP_MS) },
                 onPlayPause = {
                     DiagnosticsLog.event("EmbedWebView TV control playPause")
                     webView?.let { dispatchWebPlayerCommand(it, "toggle", fallbackScript = REMOTE_TOGGLE_PLAYBACK_JS) }
                     webIsPlaying = !webIsPlaying
                 },
-                onForward = { seekWebVideo(webView, positionMs + 10_000L) },
+                onForward = { queueTvSeek(TV_SEEK_STEP_MS) },
                 onNext = { currentOnNextEpisode?.invoke() },
                 onToggleMute = {
                     DiagnosticsLog.event("EmbedWebView TV control toggleMute available=$webPlaybackAvailable")
