@@ -66,4 +66,13 @@ class UpdateApkSelectionTest {
         )
         assertEquals("anilili.apk", preferredReleaseApkName(legacyAssets, listOf("x86_64")))
     }
+
+    @Test
+    fun versionComparisonDistinguishesNewerEqualAndOlderReleases() {
+        assertEquals(1, compareAppVersions(remote = "0.1.39", installed = "0.1.38"))
+        assertEquals(0, compareAppVersions(remote = "0.1.38", installed = "0.1.38"))
+        assertEquals(-1, compareAppVersions(remote = "0.1.37", installed = "0.1.38"))
+        assertEquals(0, compareAppVersions(remote = "0.1.38.0", installed = "0.1.38"))
+        assertEquals(0, compareAppVersions(remote = "v0.1.38", installed = "0.1.38-debug"))
+    }
 }

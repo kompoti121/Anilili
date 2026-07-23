@@ -112,6 +112,25 @@ fun UpdatePromptHost() {
             },
         )
 
+        is UpdateManager.State.UpToDate -> AlertDialog(
+            onDismissRequest = UpdateManager::dismiss,
+            title = { Text("No update available", fontWeight = FontWeight.Black) },
+            text = {
+                Text(
+                    if (s.latestPublishedVersion == UpdateManager.currentVersion) {
+                        "You're on the latest published version (v${UpdateManager.currentVersion})."
+                    } else {
+                        "You have v${UpdateManager.currentVersion}. The latest published release is " +
+                            "v${s.latestPublishedVersion}, so this installed build is already newer."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = UpdateManager::dismiss) { Text("OK") }
+            },
+        )
+
         is UpdateManager.State.Failed -> AlertDialog(
             onDismissRequest = UpdateManager::dismiss,
             title = { Text("Update failed", fontWeight = FontWeight.Black) },

@@ -460,10 +460,15 @@ fun SettingsScreen(
             }
             item {
                 Text(
-                    if (updateState is UpdateManager.State.UpToDate) {
-                        "You're on the latest version (v${UpdateManager.currentVersion})"
-                    } else {
-                        "Version ${UpdateManager.currentVersion}"
+                    when (val state = updateState) {
+                        is UpdateManager.State.UpToDate -> {
+                            if (state.latestPublishedVersion == UpdateManager.currentVersion) {
+                                "You're on the latest published version (v${UpdateManager.currentVersion})"
+                            } else {
+                                "Installed v${UpdateManager.currentVersion} · published v${state.latestPublishedVersion}"
+                            }
+                        }
+                        else -> "Version ${UpdateManager.currentVersion}"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

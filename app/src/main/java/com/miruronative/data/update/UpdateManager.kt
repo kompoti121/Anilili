@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.miruronative.BuildConfig
 import com.miruronative.data.AppGraph
+import com.miruronative.diagnostics.DiagnosticsLog
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
@@ -40,7 +41,7 @@ object UpdateManager {
         data object Idle : State
         data object Checking : State
         /** Manual check found nothing newer. */
-        data object UpToDate : State
+        data class UpToDate(val latestPublishedVersion: String) : State
         data class Available(val update: UpdateInfo) : State
         data class Downloading(val update: UpdateInfo, val progress: Float) : State
         data class ReadyToInstall(val update: UpdateInfo, val file: File) : State
@@ -69,7 +70,13 @@ object UpdateManager {
 
     fun check(context: Context, manual: Boolean) {
         val current = _state.value
-        if (current is State.Checking || current is State.Downloading) return
+        if (current is State.Checking || current is State.Downloading) {
+            DiagnosticsLog.event(
+                "Update check ignored busyState=${current.javaClass.simpleName} manual=$manual",
+            )
+            return
+        }
+        DiagnosticsLog.event("Update check requested manual=$manual installed=$currentVersion")
         _state.value = State.Checking
         val appContext = context.applicationContext
         scope.launch {
@@ -77,29 +84,54 @@ object UpdateManager {
                 .onSuccess { info ->
                     appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                         .edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
+                    val comparison = compareAppVersions(info.version, currentVersion)
                     _state.value = when {
-                        info != null && isNewer(info.version) -> State.Available(info)
-                        manual -> State.UpToDate
+                        comparison > 0 -> State.Available(info)
+                        manual -> State.UpToDate(info.version)
                         else -> State.Idle
                     }
+                    DiagnosticsLog.event(
+                        "Update check complete manual=$manual installed=$currentVersion " +
+                            "published=${info.version} result=${when {
+                                comparison > 0 -> "available"
+                                comparison == 0 -> "up-to-date"
+                                else -> "installed-newer-than-published"
+                            }}",
+                    )
                 }
                 .onFailure { error ->
+                    DiagnosticsLog.throwable(
+                        "Update check failed manual=$manual installed=$currentVersion",
+                        error,
+                    )
                     _state.value = if (manual) State.Failed(error.message ?: "Update check failed") else State.Idle
                 }
         }
     }
 
     fun download(context: Context) {
-        val info = (_state.value as? State.Available)?.update ?: return
+        val info = (_state.value as? State.Available)?.update
+        if (info == null) {
+            DiagnosticsLog.event("Update download ignored state=${_state.value.javaClass.simpleName}")
+            return
+        }
+        DiagnosticsLog.event(
+            "Update download requested version=${info.version} sizeBytes=${info.sizeBytes} " +
+                "host=${runCatching { Uri.parse(info.apkUrl).host }.getOrNull() ?: "unknown"}",
+        )
         _state.value = State.Downloading(info, 0f)
         val appContext = context.applicationContext
         scope.launch {
             runCatching { downloadApk(appContext, info) }
                 .onSuccess { file ->
+                    DiagnosticsLog.event(
+                        "Update download complete version=${info.version} bytes=${file.length()}",
+                    )
                     _state.value = State.ReadyToInstall(info, file)
                     install(appContext)
                 }
                 .onFailure { error ->
+                    DiagnosticsLog.throwable("Update download failed version=${info.version}", error)
                     _state.value = State.Failed(error.message ?: "Download failed")
                 }
         }
@@ -111,8 +143,15 @@ object UpdateManager {
      * ReadyToInstall state is kept so the user can retry after granting.
      */
     fun install(context: Context) {
-        val ready = _state.value as? State.ReadyToInstall ?: return
+        val ready = _state.value as? State.ReadyToInstall
+        if (ready == null) {
+            DiagnosticsLog.event("Update install ignored state=${_state.value.javaClass.simpleName}")
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            DiagnosticsLog.event(
+                "Update install permission required version=${ready.update.version}; opening Android settings",
+            )
             // Some TV builds don't resolve the per-app screen; fall back to the general list.
             val perApp = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -120,21 +159,34 @@ object UpdateManager {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             runCatching { context.startActivity(perApp) }
                 .recoverCatching { context.startActivity(generic) }
+                .onSuccess {
+                    DiagnosticsLog.event("Update install permission settings launched")
+                }
                 .onFailure {
+                    DiagnosticsLog.throwable("Update install permission settings failed", it)
                     _state.value = State.Failed(
                         "Android blocked the install. Allow \"install unknown apps\" for Anilili in system settings, then try again.",
                     )
                 }
             return
         }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", ready.file)
         runCatching {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                ready.file,
+            )
             context.startActivity(
                 Intent(Intent.ACTION_VIEW)
                     .setDataAndType(uri, "application/vnd.android.package-archive")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
             )
+        }.onSuccess {
+            DiagnosticsLog.event(
+                "Update installer launched version=${ready.update.version} bytes=${ready.file.length()}",
+            )
         }.onFailure { error ->
+            DiagnosticsLog.throwable("Update installer launch failed version=${ready.update.version}", error)
             _state.value = State.Failed(error.message ?: "Couldn't launch the installer")
         }
     }
@@ -143,7 +195,7 @@ object UpdateManager {
         if (_state.value !is State.Downloading) _state.value = State.Idle
     }
 
-    private fun fetchLatest(): UpdateInfo? {
+    private fun fetchLatest(): UpdateInfo {
         val request = Request.Builder()
             .url(RELEASES_LATEST)
             .header("Accept", "application/vnd.github+json")
@@ -154,7 +206,10 @@ object UpdateManager {
             val name = release["name"]?.jsonPrimitive?.content.orEmpty()
             val tag = release["tag_name"]?.jsonPrimitive?.content.orEmpty()
             val body = release["body"]?.jsonPrimitive?.content.orEmpty()
-            val version = parseVersion(name) ?: parseVersion(tag) ?: parseVersion(body) ?: return null
+            val version = parseVersion(name)
+                ?: parseVersion(tag)
+                ?: parseVersion(body)
+                ?: error("The published release doesn't contain a version number")
             val apks = release["assets"]?.jsonArray
                 ?.map { it.jsonObject }
                 ?.filter { it["name"]?.jsonPrimitive?.content.orEmpty().endsWith(".apk", ignoreCase = true) }
@@ -162,15 +217,21 @@ object UpdateManager {
             val preferredName = preferredReleaseApkName(
                 apks.map { it["name"]?.jsonPrimitive?.content.orEmpty() },
                 Build.SUPPORTED_ABIS.toList(),
-            ) ?: return null
+            ) ?: error("The published release doesn't contain a compatible APK")
             val apk = apks.firstOrNull {
                 it["name"]?.jsonPrimitive?.content.orEmpty() == preferredName
-            } ?: return null
+            } ?: error("The published APK asset could not be selected")
+            val apkUrl = apk["browser_download_url"]?.jsonPrimitive?.content
+                ?: error("The published APK is missing its download URL")
+            val sizeBytes = apk["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: -1L
+            DiagnosticsLog.event(
+                "Update release parsed version=$version asset=$preferredName sizeBytes=$sizeBytes",
+            )
             return UpdateInfo(
                 version = version,
                 changelog = body,
-                apkUrl = apk["browser_download_url"]?.jsonPrimitive?.content ?: return null,
-                sizeBytes = apk["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: -1L,
+                apkUrl = apkUrl,
+                sizeBytes = sizeBytes,
             )
         }
     }
@@ -211,16 +272,22 @@ object UpdateManager {
     private fun parseVersion(text: String): String? =
         Regex("""v?(\d+(?:\.\d+)+)""").find(text)?.groupValues?.get(1)
 
-    private fun isNewer(remote: String): Boolean {
-        val remoteParts = remote.split('.').map { it.toIntOrNull() ?: 0 }
-        val currentParts = currentVersion.split('.').map { it.toIntOrNull() ?: 0 }
-        for (i in 0 until maxOf(remoteParts.size, currentParts.size)) {
-            val r = remoteParts.getOrElse(i) { 0 }
-            val c = currentParts.getOrElse(i) { 0 }
-            if (r != c) return r > c
-        }
-        return false
+}
+
+internal fun compareAppVersions(remote: String, installed: String): Int {
+    fun parts(version: String): List<Int> = version
+        .removePrefix("v")
+        .split('.')
+        .map { part -> part.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
+
+    val remoteParts = parts(remote)
+    val installedParts = parts(installed)
+    for (i in 0 until maxOf(remoteParts.size, installedParts.size)) {
+        val remotePart = remoteParts.getOrElse(i) { 0 }
+        val installedPart = installedParts.getOrElse(i) { 0 }
+        if (remotePart != installedPart) return remotePart.compareTo(installedPart)
     }
+    return 0
 }
 
 /** Chooses the smallest compatible split while retaining the universal APK as a safe fallback. */
