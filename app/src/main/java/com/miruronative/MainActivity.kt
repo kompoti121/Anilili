@@ -843,7 +843,7 @@ private fun AppNavigationRail(
     LaunchedEffect(currentRoute, device.isTv) {
         if (device.isTv) {
             Tab.entries.firstOrNull { it.route == currentRoute }
-                ?.let { focusRequesters.getValue(it).requestFocus() }
+                ?.let { tab -> runCatching { focusRequesters.getValue(tab).requestFocus() } }
         }
     }
     NavigationRail(

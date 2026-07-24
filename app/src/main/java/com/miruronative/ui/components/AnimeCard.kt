@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,10 +46,10 @@ fun AnimeCard(
     modifier: Modifier = Modifier,
 ) {
     val device = LocalAppDeviceProfile.current
-    val titleStyle = MaterialTheme.typography.labelLarge
-    val titleMaxLines = if (device.isTv) 3 else 1
-    val tvTitleHeight = with(LocalDensity.current) {
-        titleStyle.lineHeight.toDp() * titleMaxLines
+    val titleStyle = if (device.isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge
+    val titleMaxLines = if (device.isTv) 2 else 1
+    val tvTitleMinHeight = with(LocalDensity.current) {
+        titleStyle.lineHeight.toDp() * titleMaxLines + 4.dp
     }
     Column(
         modifier = modifier
@@ -83,7 +84,7 @@ fun AnimeCard(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .padding(top = 5.dp)
-                .then(if (device.isTv) Modifier.height(tvTitleHeight) else Modifier),
+                .then(if (device.isTv) Modifier.heightIn(min = tvTitleMinHeight) else Modifier),
         )
         Text(
             text = listOfNotNull(

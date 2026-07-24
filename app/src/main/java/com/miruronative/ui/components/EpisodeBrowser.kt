@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -25,7 +27,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -220,21 +221,56 @@ private fun EpisodeFilterField(
             modifier = modifier,
         )
     } else {
-        OutlinedTextField(
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val colors = MaterialTheme.colorScheme
+        val textStyle = MaterialTheme.typography.labelLarge.copy(color = colors.onSurface)
+        BasicTextField(
             value = query,
             onValueChange = onQueryChange,
-            modifier = modifier.fillMaxWidth(),
-            placeholder = { Text("Filter episodes…") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { onQueryChange("") }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear filter")
+            modifier = modifier,
+            singleLine = true,
+            textStyle = textStyle,
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.primary),
+            interactionSource = interactionSource,
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier
+                        .border(1.dp, colors.outline, RoundedCornerShape(10.dp))
+                        .padding(start = 10.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = colors.onSurfaceVariant,
+                    )
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp),
+                    ) {
+                        if (query.isEmpty()) {
+                            Text(
+                                "Filter episodes…",
+                                style = textStyle.copy(color = colors.onSurfaceVariant),
+                                maxLines = 1,
+                            )
+                        }
+                        innerTextField()
+                    }
+                    if (query.isNotEmpty()) {
+                        Icon(
+                            Icons.Default.Clear,
+                            contentDescription = "Clear filter",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { onQueryChange("") },
+                            tint = colors.onSurfaceVariant,
+                        )
                     }
                 }
             },
-            singleLine = true,
-            shape = RoundedCornerShape(10.dp),
         )
     }
 }
