@@ -821,7 +821,8 @@ fun PlayerSurface(
                 it.isFocusable = !device.isTv
                 it.isFocusableInTouchMode = !device.isTv
                 if (device.isTv) it.clearFocus()
-                it.applyCaptionStyle(captionStyle)
+                val controlsVisible = if (device.isTv) tvControlsVisible else phoneControlsVisible
+                it.applyCaptionStyle(captionStyle, controlsVisible)
                 it.bindUnifiedSettingsButton { settingsExpanded = true }
                 DiagnosticsLog.event(
                     "PlayerSurface AndroidView update controller=${controller != null} " +
@@ -835,6 +836,11 @@ fun PlayerSurface(
             },
             modifier = Modifier.fillMaxSize(),
         )
+
+        val controlsShowing = if (device.isTv) tvControlsVisible else phoneControlsVisible
+        LaunchedEffect(captionStyle, controlsShowing, playerView) {
+            playerView?.applyCaptionStyle(captionStyle, controlsShowing)
+        }
 
         // A TV can still have a USB/Bluetooth mouse or air-mouse remote. The native PlayerView is
         // deliberately non-focusable on TV, so give pointer users the same control reveal/hide
@@ -1434,8 +1440,11 @@ private fun applyTextTrack(controller: MediaController, option: TrackOption?) {
  * picture.
  */
 @OptIn(UnstableApi::class)
-private fun PlayerView.applyCaptionStyle(style: CaptionStyle) {
+private fun PlayerView.applyCaptionStyle(style: CaptionStyle, controlsVisible: Boolean = false) {
     val view = subtitleView ?: return
+    view.setApplyEmbeddedStyles(false)
+    view.setApplyEmbeddedFontSizes(false)
+    view.setViewType(SubtitleView.VIEW_TYPE_CANVAS)
     view.setStyle(
         CaptionStyleCompat(
             style.textArgb,
@@ -1449,7 +1458,12 @@ private fun PlayerView.applyCaptionStyle(style: CaptionStyle) {
     view.setFractionalTextSize(
         SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * style.textScalePercent / 100f,
     )
-    view.setBottomPaddingFraction(style.bottomPaddingFraction)
+    val effectiveMarginPercent = if (controlsVisible) {
+        (style.bottomMarginPercent + 10).coerceAtMost(40)
+    } else {
+        style.bottomMarginPercent
+    }
+    view.setBottomPaddingFraction(effectiveMarginPercent / 100f)
 }
 
 @OptIn(UnstableApi::class)

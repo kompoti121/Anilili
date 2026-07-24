@@ -235,6 +235,13 @@ fun EmbedWebView(
         onDispose { currentOnPlaybackStopperChanged?.invoke(null) }
     }
 
+    val controlsShowing = if (device.isTv) tvControlsVisible else touchControlsVisible
+    LaunchedEffect(captionStyle, controlsShowing, webView) {
+        val web = webView ?: return@LaunchedEffect
+        val js = applyCaptionStyleJs(captionStyle, controlsShowing)
+        web.evaluateJavascript(js, null)
+    }
+
     // Full touch controls — seek bar and all — whenever the injected JS can reach the <video>.
     val touchControlsActive = !device.isTv && webPlaybackAvailable && loadError == null
     // Old WebView builds without all-frame injection get a reduced native bar. Modern WebViews
@@ -1826,4 +1833,40 @@ private class WebProgressBridge(
     fun onVideoAvailable() {
         onVideoAvailableCallback()
     }
+}
+
+internal fun applyCaptionStyleJs(style: CaptionStyle, controlsVisible: Boolean = false): String {
+    val margin = if (controlsVisible) (style.bottomMarginPercent + 10).coerceAtMost(40) else style.bottomMarginPercent
+    val bg = style.backgroundCssRgba()
+    val textHex = style.textCssHex()
+    val weight = if (style.boldText) "bold" else "normal"
+    val size = style.textScalePercent
+    val css = """
+        video::cue, ::cue {
+            background-color: $bg !important;
+            color: $textHex !important;
+            font-size: $size% !important;
+            font-weight: $weight !important;
+            bottom: ${margin}% !important;
+            transform: translateY(-${margin}vh) !important;
+        }
+        .vjs-text-track-display, .jw-captions, .art-subtitle, .dplayer-subtitle, .shaka-text-container, [class*="subtitle"], [class*="caption"] {
+            bottom: ${margin}% !important;
+            margin-bottom: ${margin}vh !important;
+        }
+    """.trimIndent().replace("\n", " ")
+    return """
+        (function() {
+          var id = 'anili-caption-styles';
+          var parent = document.head || document.documentElement;
+          if (!parent) return;
+          var style = document.getElementById(id);
+          if (!style) {
+            style = document.createElement('style');
+            style.id = id;
+            parent.appendChild(style);
+          }
+          style.textContent = "$css";
+        })();
+    """.trimIndent()
 }
