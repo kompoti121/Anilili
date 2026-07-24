@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -110,6 +111,15 @@ internal fun TvHomeContent(
         }
     }
 
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(heroHasFocus) {
+        if (heroHasFocus) {
+            railPreview = null
+            listState.animateScrollToItem(0)
+        }
+    }
+
     LaunchedEffect(spotlight.map(Media::id), spotlightIndex, heroHasFocus, railPreview) {
         if (spotlight.size <= 1 || heroHasFocus || railPreview != null) return@LaunchedEffect
         delay(TV_HERO_AUTO_ADVANCE_MS)
@@ -118,6 +128,7 @@ internal fun TvHomeContent(
 
     CompositionLocalProvider(LocalBringIntoViewSpec provides edgeBringIntoViewSpec) {
         LazyColumn(
+            state = listState,
             modifier = modifier.fillMaxSize().background(Color.Black),
             contentPadding = PaddingValues(bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -218,7 +229,12 @@ private fun TvHero(
     }
     val image = media.bannerImage ?: media.coverImage.extraLarge ?: media.coverImage.best
 
-    Box(Modifier.fillMaxWidth().height(390.dp)) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(390.dp)
+            .focusGroup(),
+    ) {
         AsyncImage(
             model = image,
             contentDescription = null,

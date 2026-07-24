@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +65,7 @@ import coil.compose.AsyncImage
 import com.miruronative.data.library.HistoryEntry
 import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.Media
+import kotlinx.coroutines.launch
 import com.miruronative.data.model.StudioNode
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.WatchProgressBar
@@ -119,8 +122,12 @@ internal fun TvDetailContent(
         }
     }
 
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
     CompositionLocalProvider(LocalBringIntoViewSpec provides edgeBringIntoViewSpec) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().background(Color.Black),
             contentPadding = PaddingValues(bottom = 42.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -136,7 +143,10 @@ internal fun TvDetailContent(
                     onToggleSaved = onToggleSaved,
                     onStudioClick = onStudioClick,
                     primaryActionFocusRequester = primaryActionFocusRequester,
-                    onPrimaryFocusAcquired = onPrimaryFocusAcquired,
+                    onPrimaryFocusAcquired = {
+                        onPrimaryFocusAcquired()
+                        scope.launch { listState.animateScrollToItem(0) }
+                    },
                 )
             }
 
@@ -206,7 +216,12 @@ private fun TvDetailHero(
     }
     val studio = info.studios.nodes.firstOrNull { it.isAnimationStudio && !it.name.isNullOrBlank() }
 
-    Box(Modifier.fillMaxWidth().height(305.dp)) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(305.dp)
+            .focusGroup(),
+    ) {
         AsyncImage(
             model = image,
             contentDescription = null,
