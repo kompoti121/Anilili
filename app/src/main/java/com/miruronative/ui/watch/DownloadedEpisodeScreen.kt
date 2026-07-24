@@ -72,6 +72,12 @@ fun DownloadedEpisodeScreen(
         onDispose { PlaybackService.pauseActivePlayback() }
     }
 
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (device.isTv) {
+            runCatching { coil.Coil.imageLoader(context).memoryCache?.clear() }
+        }
+    }
+
     // Auto rotate downloaded video to fullscreen landscape without needing to rotate device manually
     DisposableEffect(Unit, device.isTv) {
         val window = activity?.window

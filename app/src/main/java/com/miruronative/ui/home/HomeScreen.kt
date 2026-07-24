@@ -571,6 +571,22 @@ private fun HeroPager(
             pagerState.animateScrollToPage(nextHeroPage(pagerState.settledPage, items.size))
         }
     }
+    // Pre-load upcoming hero banner images into Coil memory cache for seamless swipe transitions.
+    // Skipped on TV to conserve RAM (TV only renders one hero at a time anyway).
+    if (!device.isTv) {
+        val context = LocalContext.current
+        LaunchedEffect(heroIds) {
+            val loader = coil.Coil.imageLoader(context)
+            items.take(3).forEach { media ->
+                val url = media.bannerImage ?: media.coverImage.best
+                if (url != null) {
+                    loader.enqueue(
+                        ImageRequest.Builder(context).data(url).crossfade(false).build(),
+                    )
+                }
+            }
+        }
+    }
     Box(
         Modifier
             .fillMaxWidth()

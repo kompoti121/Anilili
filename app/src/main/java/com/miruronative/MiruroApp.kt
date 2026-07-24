@@ -77,18 +77,20 @@ class MiruroApp : Application(), ImageLoaderFactory {
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .okHttpClient { AppGraph.httpClient }
         .memoryCache {
             MemoryCache.Builder(this)
-                .maxSizePercent(0.25)
+                .maxSizePercent(if (AppGraph.isTv) 0.12 else 0.25)
                 .build()
         }
         .diskCache {
             DiskCache.Builder()
                 .directory(cacheDir.resolve("images"))
-                .maxSizeBytes(256L * 1024 * 1024)
+                .maxSizeBytes(if (AppGraph.isTv) 128L * 1024 * 1024 else 256L * 1024 * 1024)
                 .build()
         }
-        .crossfade(true)
+        .crossfade(150)
+        .respectCacheHeaders(false)
         .build()
 
     private inline fun diagnosticsStep(name: String, block: () -> Unit) {

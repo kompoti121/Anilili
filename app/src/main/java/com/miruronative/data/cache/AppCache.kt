@@ -88,9 +88,10 @@ class AppCache(
     ).fallbackToDestructiveMigration(true).build().cacheDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val keyLocks = Array(64) { Mutex() }
-    private val memory = object : LinkedHashMap<String, CacheEntry>(MEMORY_ENTRIES, 0.75f, true) {
+    private val memoryLimit = if (com.miruronative.data.AppGraph.isTv) 40 else MEMORY_ENTRIES
+    private val memory = object : LinkedHashMap<String, CacheEntry>(memoryLimit, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean =
-            size > MEMORY_ENTRIES
+            size > memoryLimit
     }
 
     suspend fun <T> getOrFetch(
@@ -254,8 +255,8 @@ class AppCache(
 
     private companion object {
         const val CHUNK_MARKER = "cache-chunks:"
-        const val MEMORY_ENTRIES = 80
-        const val DISK_ENTRIES = 500
+        const val MEMORY_ENTRIES = 150
+        const val DISK_ENTRIES = 800
         const val DEFAULT_STALE_MS = 7L * 24 * 60 * 60 * 1000
         const val DISK_STALE_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
 

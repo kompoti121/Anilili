@@ -223,6 +223,12 @@ fun WatchScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        if (device.isTv) {
+            runCatching { coil.Coil.imageLoader(context).memoryCache?.clear() }
+        }
+    }
+
     // Drive orientation + system bars from the fullscreen flag; restore on leave.
     DisposableEffect(fullscreen, device.isTv) {
         val window = activity?.window
