@@ -30,6 +30,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,9 +81,10 @@ internal fun InPlayerEpisodeDrawer(
     var chosenBlockIndex by remember(episodes) { mutableStateOf<Int?>(null) }
     val blocks = remember(episodes) { episodeBlocks(episodes) }
     val currentEpisode = episodes.getOrNull(currentIndex)
-    val blockIndex = (chosenBlockIndex ?: blockIndexContaining(blocks, currentEpisode?.number))
-        .coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
-    val shownEpisodes = blocks.getOrNull(blockIndex)?.episodes ?: episodes
+    val defaultBlockIndex = remember(blocks, currentEpisode) {
+        blockIndexContaining(blocks, currentEpisode?.number).coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
+    }
+    val activeBlockIndex = chosenBlockIndex ?: defaultBlockIndex
 
     val indexByPipeId = remember(episodes) {
         episodes.withIndex().associate { (index, episode) -> episode.pipeId to index }
@@ -90,7 +93,8 @@ internal fun InPlayerEpisodeDrawer(
     val listState = rememberLazyListState()
     val initialFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(blockIndex, currentIndex) {
+    LaunchedEffect(activeBlockIndex, currentIndex) {
+        val shownEpisodes = blocks.getOrNull(activeBlockIndex)?.episodes ?: episodes
         val targetInShown = shownEpisodes.indexOfFirst { indexByPipeId[it.pipeId] == currentIndex }
         if (targetInShown >= 0) {
             listState.scrollToItem(targetInShown)
@@ -143,15 +147,6 @@ internal fun InPlayerEpisodeDrawer(
                     }
                 }
 
-                if (blocks.size > 1) {
-                    Spacer(Modifier.height(8.dp))
-                    EpisodeBlockPicker(
-                        blocks = blocks,
-                        selectedIndex = blockIndex,
-                        onSelect = { chosenBlockIndex = it },
-                    )
-                }
-
                 Spacer(Modifier.height(12.dp))
 
                 Box(
@@ -164,23 +159,61 @@ internal fun InPlayerEpisodeDrawer(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        itemsIndexed(shownEpisodes) { _, episode ->
-                            val globalIndex = indexByPipeId[episode.pipeId] ?: -1
-                            val isCurrent = globalIndex == currentIndex
-                            val itemFocusRequester = if (isCurrent) initialFocusRequester else remember { FocusRequester() }
+                        if (blocks.size <= 1) {
+                            itemsIndexed(episodes) { _, episode ->
+                                val globalIndex = indexByPipeId[episode.pipeId] ?: -1
+                                val isCurrent = globalIndex == currentIndex
+                                val itemFocusRequester = if (isCurrent) initialFocusRequester else remember { FocusRequester() }
 
-                            InPlayerEpisodeItemRow(
-                                episode = episode,
-                                artworkUrl = artworkUrl,
-                                isCurrent = isCurrent,
-                                focusRequester = itemFocusRequester,
-                                onClick = {
-                                    if (globalIndex >= 0) {
-                                        onSelectEpisode(globalIndex)
-                                        onDismiss()
+                                InPlayerEpisodeItemRow(
+                                    episode = episode,
+                                    artworkUrl = artworkUrl,
+                                    isCurrent = isCurrent,
+                                    focusRequester = itemFocusRequester,
+                                    onClick = {
+                                        if (globalIndex >= 0) {
+                                            onSelectEpisode(globalIndex)
+                                            onDismiss()
+                                        }
+                                    },
+                                )
+                            }
+                        } else {
+                            blocks.forEachIndexed { blockIdx, block ->
+                                val isExpanded = (blockIdx == activeBlockIndex)
+                                item(key = "season_header_$blockIdx") {
+                                    SeasonHeaderRow(
+                                        seasonNumber = blockIdx + 1,
+                                        rangeLabel = block.label,
+                                        episodeCount = block.episodes.size,
+                                        isExpanded = isExpanded,
+                                        onClick = {
+                                            chosenBlockIndex = if (isExpanded) -1 else blockIdx
+                                        },
+                                    )
+                                }
+
+                                if (isExpanded) {
+                                    itemsIndexed(block.episodes, key = { _, ep -> "ep_${ep.pipeId}" }) { _, episode ->
+                                        val globalIndex = indexByPipeId[episode.pipeId] ?: -1
+                                        val isCurrent = globalIndex == currentIndex
+                                        val itemFocusRequester = if (isCurrent) initialFocusRequester else remember { FocusRequester() }
+
+                                        InPlayerEpisodeItemRow(
+                                            episode = episode,
+                                            artworkUrl = artworkUrl,
+                                            isCurrent = isCurrent,
+                                            focusRequester = itemFocusRequester,
+                                            onClick = {
+                                                if (globalIndex >= 0) {
+                                                    onSelectEpisode(globalIndex)
+                                                    onDismiss()
+                                                }
+                                            },
+                                        )
                                     }
-                                },
-                            )
+                                }
+                            }
                         }
                     }
 
@@ -192,6 +225,53 @@ internal fun InPlayerEpisodeDrawer(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SeasonHeaderRow(
+    seasonNumber: Int,
+    rangeLabel: String,
+    episodeCount: Int,
+    isExpanded: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .focusHighlight(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        color = if (isExpanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.07f),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(
+                    text = "Season $seasonNumber ($rangeLabel)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+                Text(
+                    text = "$episodeCount episodes",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.65f),
+                )
+            }
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (isExpanded) "Collapse season" else "Expand season",
+                tint = Color.White.copy(alpha = 0.85f),
+            )
         }
     }
 }
