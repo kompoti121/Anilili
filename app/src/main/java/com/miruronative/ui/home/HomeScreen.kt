@@ -337,7 +337,10 @@ private fun HomeContent(
                 "history=${history.size} selectedTab=${selectedTab.name}",
         )
     }
-    val catalog = data.tab(selectedTab)
+    val initialBatch = if (device.isTv) 28 else 18
+    var visibleLimit by rememberSaveable(selectedTab) { mutableIntStateOf(initialBatch) }
+    val fullTabList = data.tab(selectedTab)
+    val catalog = fullTabList.take(visibleLimit)
     val gridSpacing = if (device.isTv) 16.dp else 9.dp
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -409,7 +412,14 @@ private fun HomeContent(
                         contentAlignment = Alignment.Center,
                     ) {
                         OutlinedButton(
-                            onClick = { onLoadMoreTab(selectedTab) },
+                            onClick = {
+                                if (visibleLimit < fullTabList.size) {
+                                    visibleLimit += initialBatch
+                                } else {
+                                    onLoadMoreTab(selectedTab)
+                                    visibleLimit += initialBatch
+                                }
+                            },
                             shape = RoundedCornerShape(20.dp),
                             modifier = Modifier.focusHighlight(RoundedCornerShape(20.dp)),
                         ) {
