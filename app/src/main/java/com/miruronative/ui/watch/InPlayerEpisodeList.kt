@@ -343,28 +343,40 @@ private fun InPlayerEpisodeItemRow(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.45f)),
+                        .background(Color.Black.copy(alpha = 0.55f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "Currently playing",
-                        tint = Color(0xFFC4B5FD),
-                        modifier = Modifier.size(22.dp),
+                    com.miruronative.ui.components.EqualizerWaveIndicator(
+                        color = Color(0xFFC4B5FD),
+                        barCount = 4,
+                        barWidth = 3.5.dp,
+                        maxHeight = 18.dp,
                     )
                 }
             }
         }
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = episode.distinctTitle ?: "Episode ${episode.displayNumber}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = episode.distinctTitle ?: "Episode ${episode.displayNumber}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isCurrent) Color(0xFFC4B5FD) else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (isCurrent) {
+                    Spacer(Modifier.width(6.dp))
+                    com.miruronative.ui.components.EqualizerWaveIndicator(
+                        color = Color(0xFFC4B5FD),
+                        barCount = 3,
+                        barWidth = 2.5.dp,
+                        maxHeight = 12.dp,
+                    )
+                }
+            }
             if (episode.filler) {
                 Text(
                     text = "Filler",

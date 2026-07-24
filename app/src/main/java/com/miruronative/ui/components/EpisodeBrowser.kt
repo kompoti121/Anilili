@@ -304,13 +304,20 @@ fun EpisodeNumberChip(
             color = if (selected) MaterialTheme.colorScheme.onPrimary
             else MaterialTheme.colorScheme.onSurface,
         )
-        if (episode.filler) {
+        if (selected) {
+            EqualizerWaveIndicator(
+                barCount = 3,
+                color = MaterialTheme.colorScheme.onPrimary,
+                barWidth = 2.dp,
+                maxHeight = 10.dp,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 5.dp),
+            )
+        } else if (episode.filler) {
             Text(
                 "F",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                else MaterialTheme.colorScheme.tertiary,
+                color = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 5.dp),
             )
         }
