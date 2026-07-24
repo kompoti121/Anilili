@@ -185,6 +185,9 @@ class MiruroRepository(
     suspend fun topRated(page: Int = 1, force: Boolean = false): MediaPage = mediaPage("top:$page", COLLECTION_TTL, force) {
         aniList.collection("SCORE_DESC", page = page, perPage = 30, hideAdult = hideAdult)
     }
+    suspend fun movies(page: Int = 1, force: Boolean = false): MediaPage = mediaPage("movies:$page", COLLECTION_TTL, force) {
+        aniList.collection("POPULARITY_DESC", format = "MOVIE", page = page, perPage = 30, hideAdult = hideAdult)
+    }
     suspend fun recentlyReleased(page: Int = 1, force: Boolean = false): MediaPage =
         mediaPage("recent:$page", AIRING_TTL, force) {
             aniList.collection("START_DATE_DESC", status = "RELEASING", page = page, perPage = 30, hideAdult = hideAdult)

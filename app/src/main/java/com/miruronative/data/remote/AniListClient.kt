@@ -354,17 +354,19 @@ class AniListClient(
     suspend fun collection(
         sort: String,
         status: String? = null,
+        format: String? = null,
         page: Int = 1,
         perPage: Int = 20,
         hideAdult: Boolean = false,
     ): MediaPage {
         val statusFilter = if (status != null) ", status: $status" else ""
+        val formatFilter = if (format != null) ", format: $format" else ""
         val adultFilter = if (hideAdult) ", isAdult: false" else ""
         val gql = """
             query (${'$'}page: Int, ${'$'}perPage: Int) {
               Page(page: ${'$'}page, perPage: ${'$'}perPage) {
                 pageInfo { hasNextPage currentPage }
-                media(type: ANIME, sort: [$sort]$statusFilter$adultFilter) { $mediaListFields }
+                media(type: ANIME, sort: [$sort]$statusFilter$formatFilter$adultFilter) { $mediaListFields }
               }
             }
         """.trimIndent()

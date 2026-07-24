@@ -44,6 +44,11 @@ class HomeViewModel : ViewModel() {
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing = _isRefreshing.asStateFlow()
 
+    private val tabPages = mutableMapOf<HomeTab, Int>()
+    private val tabLoading = mutableMapOf<HomeTab, Boolean>()
+    private var trendingPage = 1
+    private var trendingLoading = false
+
     var selectedTab by mutableStateOf(HomeTab.POPULAR)
         private set
 
@@ -64,6 +69,8 @@ class HomeViewModel : ViewModel() {
                     movies = collections.movies,
                     topRated = collections.topRated,
                 )
+                tabPages.clear()
+                trendingPage = 1
                 DiagnosticsLog.event(
                     "Home load success spotlight=${data.spotlight.size} newest=${data.newest.size} " +
                         "popular=${data.popular.size} movies=${data.movies.size} topRated=${data.topRated.size}",
@@ -75,6 +82,62 @@ class HomeViewModel : ViewModel() {
                 _state.value = UiState.Error(e.message ?: "Failed to load home")
             } finally {
                 _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun loadMoreTab(tab: HomeTab) {
+        val current = (_state.value as? UiState.Success)?.data ?: return
+        if (tabLoading[tab] == true) return
+        tabLoading[tab] = true
+
+        viewModelScope.launch {
+            try {
+                val nextPage = (tabPages[tab] ?: 1) + 1
+                val hideAdult = com.miruronative.data.settings.SettingsStore.hideAdultContent.value
+                val newPageData = when (tab) {
+                    HomeTab.POPULAR -> repo.popular(nextPage).items
+                    HomeTab.NEWEST -> repo.recentlyReleased(nextPage).items
+                    HomeTab.MOVIES -> repo.movies(nextPage).items
+                    HomeTab.TOP_RATED -> repo.topRated(nextPage).items
+                }
+                if (newPageData.isNotEmpty()) {
+                    tabPages[tab] = nextPage
+                    val updatedList = (current.tab(tab) + newPageData).distinctBy { it.id }
+                    val newData = when (tab) {
+                        HomeTab.POPULAR -> current.copy(popular = updatedList)
+                        HomeTab.NEWEST -> current.copy(newest = updatedList)
+                        HomeTab.MOVIES -> current.copy(movies = updatedList)
+                        HomeTab.TOP_RATED -> current.copy(topRated = updatedList)
+                    }
+                    _state.value = UiState.Success(newData)
+                }
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+            } finally {
+                tabLoading[tab] = false
+            }
+        }
+    }
+
+    fun loadMoreTrending() {
+        val current = (_state.value as? UiState.Success)?.data ?: return
+        if (trendingLoading) return
+        trendingLoading = true
+
+        viewModelScope.launch {
+            try {
+                val nextPage = trendingPage + 1
+                val newPageData = repo.trending(nextPage).items
+                if (newPageData.isNotEmpty()) {
+                    trendingPage = nextPage
+                    val updatedList = (current.spotlight + newPageData).distinctBy { it.id }
+                    _state.value = UiState.Success(current.copy(spotlight = updatedList))
+                }
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+            } finally {
+                trendingLoading = false
             }
         }
     }

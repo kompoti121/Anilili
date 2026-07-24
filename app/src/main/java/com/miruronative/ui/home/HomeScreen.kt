@@ -26,12 +26,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
@@ -98,8 +101,10 @@ import com.miruronative.ui.components.LoadingBox
 import com.miruronative.ui.components.AnimeCard
 import com.miruronative.ui.search.SearchViewModel
 import com.miruronative.ui.components.ContinueWatchingActionsDialog
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
+import com.miruronative.ui.components.FastScrollbar
 import com.miruronative.ui.components.LocalAppChromeBottomInset
 import com.miruronative.ui.components.PullRefreshContainer
 import com.miruronative.ui.components.ScrollAwareTopBar
@@ -252,6 +257,8 @@ fun HomeScreen(
                     data = s.data,
                     selectedTab = vm.selectedTab,
                     onSelectTab = vm::selectTab,
+                    onLoadMoreTab = vm::loadMoreTab,
+                    onLoadMoreTrending = vm::loadMoreTrending,
                     history = history,
                     onAnimeClick = onAnimeClick,
                     onWatchNow = onWatchNow,
@@ -308,6 +315,8 @@ private fun HomeContent(
     data: HomeData,
     selectedTab: HomeTab,
     onSelectTab: (HomeTab) -> Unit,
+    onLoadMoreTab: (HomeTab) -> Unit,
+    onLoadMoreTrending: () -> Unit,
     onGenreClick: (String?) -> Unit,
     history: List<HistoryEntry>,
     onAnimeClick: (Int) -> Unit,
@@ -319,20 +328,21 @@ private fun HomeContent(
     val device = LocalAppDeviceProfile.current
     val chromeBottomInset = LocalAppChromeBottomInset.current
     val continueFocusRequester = remember { FocusRequester() }
+    var isTabExpanded by rememberSaveable { mutableStateOf(false) }
+    var isTrendingExpanded by rememberSaveable { mutableStateOf(false) }
+    val homeListState = rememberLazyListState()
+
     LaunchedEffect(data, history.size) {
         DiagnosticsLog.event(
             "HomeContent rendered spotlight=${data.spotlight.size} " +
                 "history=${history.size} selectedTab=${selectedTab.name}",
         )
     }
-    val catalog = data.tab(selectedTab).take(if (device.isTv) 28 else 18)
+    val fullTabList = data.tab(selectedTab)
+    val catalog = if (isTabExpanded) fullTabList else fullTabList.take(if (device.isTv) 28 else 18)
     val gridSpacing = if (device.isTv) 16.dp else 9.dp
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        // Handheld sizes every home poster card to a single width, derived from posterWidth, so
-        // the catalog grid and the "Trending" rail share one universal card size. Columns are
-        // fitted to the real content width (maxWidth already excludes any navigation rail).
-        // TV keeps its fixed 7-column grid and posterWidth rail: fitting a 10-foot width to
-        // posterWidth leaves only four columns and blows the cards up.
         val available = maxWidth - device.pagePadding * 2f
         val columns = if (device.isTv) {
             7
@@ -347,49 +357,94 @@ private fun HomeContent(
         } else {
             (available - gridSpacing * (columns - 1).toFloat()) / columns.toFloat()
         }
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            // The navigation bar floats over the list, so the tail has to clear it by its own
-            // height or the last row — Trending, usually — stays buried under the tabs.
-            contentPadding = PaddingValues(
-                top = contentPadding.calculateTopPadding(),
-                bottom = contentPadding.calculateBottomPadding() + chromeBottomInset + 28.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            item {
-                GenrePillRow(onGenreClick = onGenreClick)
-            }
-            item {
-                HeroPager(
-                    items = data.spotlight.take(6),
-                    onAnimeClick = onAnimeClick,
-                    onWatchNow = onWatchNow,
-                    // Reports whether focus actually landed on the rail. A miss (rail not
-                    // composed yet) must not swallow the key, or Down dies inside the hero.
-                    onMoveDown = if (history.isNotEmpty()) {
-                        { runCatching { continueFocusRequester.requestFocus() }.isSuccess }
-                    } else {
-                        null
-                    },
-                )
-            }
-            if (history.isNotEmpty()) {
-                item { ContinueRail(history.take(12), onResume, continueFocusRequester) }
-            }
-            item { HomeCatalogTabs(selectedTab, onSelectTab) }
-            items(catalog.chunked(columns)) { row ->
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = device.pagePadding),
-                    horizontalArrangement = Arrangement.spacedBy(gridSpacing),
-                ) {
-                    row.forEach { media ->
-                        AnimeCard(media, { onAnimeClick(media.id) }, Modifier.weight(1f))
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = homeListState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = contentPadding.calculateTopPadding(),
+                    bottom = contentPadding.calculateBottomPadding() + chromeBottomInset + 28.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                item {
+                    GenrePillRow(onGenreClick = onGenreClick)
+                }
+                item {
+                    HeroPager(
+                        items = data.spotlight.take(6),
+                        onAnimeClick = onAnimeClick,
+                        onWatchNow = onWatchNow,
+                        onMoveDown = if (history.isNotEmpty()) {
+                            { runCatching { continueFocusRequester.requestFocus() }.isSuccess }
+                        } else {
+                            null
+                        },
+                    )
+                }
+                if (history.isNotEmpty()) {
+                    item { ContinueRail(history.take(12), onResume, continueFocusRequester) }
+                }
+                item {
+                    HomeCatalogTabs(
+                        selected = selectedTab,
+                        onSelect = onSelectTab,
+                        isExpanded = isTabExpanded,
+                        onToggleExpand = { isTabExpanded = !isTabExpanded },
+                    )
+                }
+                items(catalog.chunked(columns)) { row ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = device.pagePadding),
+                        horizontalArrangement = Arrangement.spacedBy(gridSpacing),
+                    ) {
+                        row.forEach { media ->
+                            AnimeCard(media, { onAnimeClick(media.id) }, Modifier.weight(1f))
+                        }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                     }
-                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        OutlinedButton(
+                            onClick = { onLoadMoreTab(selectedTab) },
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier.focusHighlight(RoundedCornerShape(20.dp)),
+                        ) {
+                            Text("Load More ${selectedTab.label} Anime", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                item {
+                    MediaRail(
+                        title = "Trending this week",
+                        media = data.spotlight,
+                        onAnimeClick = onAnimeClick,
+                        cardWidth = cardWidth,
+                        isExpanded = isTrendingExpanded,
+                        onToggleExpand = { isTrendingExpanded = !isTrendingExpanded },
+                        onLoadMore = onLoadMoreTrending,
+                        columns = columns,
+                        gridSpacing = gridSpacing,
+                    )
                 }
             }
-            item { MediaRail("Trending this week", data.spotlight, onAnimeClick, cardWidth) }
+
+            FastScrollbar(
+                state = homeListState,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(
+                        top = contentPadding.calculateTopPadding(),
+                        bottom = contentPadding.calculateBottomPadding() + chromeBottomInset + 28.dp,
+                    ),
+            )
         }
     }
 }
@@ -435,35 +490,63 @@ private fun GenrePill(label: String, highlighted: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun HomeCatalogTabs(selected: HomeTab, onSelect: (HomeTab) -> Unit) {
+private fun HomeCatalogTabs(
+    selected: HomeTab,
+    onSelect: (HomeTab) -> Unit,
+    isExpanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
+) {
     val device = LocalAppDeviceProfile.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = device.pagePadding)
-            .clip(RoundedCornerShape(9.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        HomeTab.entries.forEach { tab ->
-            val active = tab == selected
-            Box(
+    Column(Modifier.fillMaxWidth().padding(horizontal = device.pagePadding)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
                 Modifier
                     .weight(1f)
-                    .focusHighlight(RoundedCornerShape(7.dp))
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = .24f) else Color.Transparent)
-                    .clickable { onSelect(tab) }
-                    .padding(vertical = 9.dp),
-                contentAlignment = Alignment.Center,
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    tab.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Bold,
-                )
+                HomeTab.entries.forEach { tab ->
+                    val active = tab == selected
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .focusHighlight(RoundedCornerShape(7.dp))
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = .24f) else Color.Transparent)
+                            .clickable { onSelect(tab) }
+                            .padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            tab.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+            if (onToggleExpand != null) {
+                TextButton(
+                    onClick = onToggleExpand,
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .focusHighlight(RoundedCornerShape(8.dp)),
+                ) {
+                    Icon(
+                        if (isExpanded) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isExpanded) "Carousel" else "Expand")
+                }
             }
         }
     }
@@ -861,26 +944,132 @@ internal fun nextHeroPage(currentPage: Int, pageCount: Int): Int =
     if (pageCount <= 1) 0 else (currentPage.coerceIn(0, pageCount - 1) + 1) % pageCount
 
 @Composable
-private fun MediaRail(title: String, media: List<Media>, onAnimeClick: (Int) -> Unit, cardWidth: Dp) {
+private fun MediaRail(
+    title: String,
+    media: List<Media>,
+    onAnimeClick: (Int) -> Unit,
+    cardWidth: Dp,
+    isExpanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
+    onLoadMore: (() -> Unit)? = null,
+    columns: Int = 3,
+    gridSpacing: Dp = 9.dp,
+) {
     val device = LocalAppDeviceProfile.current
-    Column {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = device.pagePadding),
-        )
-        LazyRow(
-            modifier = Modifier.focusGroup(),
-            contentPadding = PaddingValues(horizontal = device.pagePadding, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 10.dp),
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = device.pagePadding),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            items(media, key = { it.id }) { item ->
-                AnimeCard(
-                    media = item,
-                    onClick = { onAnimeClick(item.id) },
-                    modifier = Modifier.width(cardWidth),
-                )
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            if (onToggleExpand != null) {
+                TextButton(
+                    onClick = onToggleExpand,
+                    modifier = Modifier.focusHighlight(RoundedCornerShape(8.dp)),
+                ) {
+                    Icon(
+                        if (isExpanded) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isExpanded) "Carousel" else "Expand")
+                }
+            }
+        }
+        if (isExpanded) {
+            val cardRows = media.chunked(columns)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(gridSpacing),
+            ) {
+                cardRows.forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = device.pagePadding),
+                        horizontalArrangement = Arrangement.spacedBy(gridSpacing),
+                    ) {
+                        row.forEach { item ->
+                            AnimeCard(
+                                media = item,
+                                onClick = { onAnimeClick(item.id) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(columns - row.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+                if (onLoadMore != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        OutlinedButton(
+                            onClick = onLoadMore,
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier.focusHighlight(RoundedCornerShape(20.dp)),
+                        ) {
+                            Text("Load More Trending Anime", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyRow(
+                modifier = Modifier.focusGroup(),
+                contentPadding = PaddingValues(horizontal = device.pagePadding, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 10.dp),
+            ) {
+                items(media, key = { it.id }) { item ->
+                    AnimeCard(
+                        media = item,
+                        onClick = { onAnimeClick(item.id) },
+                        modifier = Modifier.width(cardWidth),
+                    )
+                }
+                if (onLoadMore != null) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .height(cardWidth * 1.4f)
+                                .width(cardWidth * 0.85f)
+                                .focusHighlight(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable { onLoadMore() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = "Load More",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    "Load More",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
