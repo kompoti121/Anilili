@@ -61,6 +61,7 @@ import coil.compose.AsyncImage
 import com.miruronative.data.model.EpisodeItem
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.EpisodeBlockPicker
+import com.miruronative.ui.components.FastScrollbar
 import com.miruronative.ui.components.blockIndexContaining
 import com.miruronative.ui.components.episodeBlocks
 
@@ -153,31 +154,42 @@ internal fun InPlayerEpisodeDrawer(
 
                 Spacer(Modifier.height(12.dp))
 
-                LazyColumn(
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    itemsIndexed(shownEpisodes) { _, episode ->
-                        val globalIndex = indexByPipeId[episode.pipeId] ?: -1
-                        val isCurrent = globalIndex == currentIndex
-                        val itemFocusRequester = if (isCurrent) initialFocusRequester else remember { FocusRequester() }
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        itemsIndexed(shownEpisodes) { _, episode ->
+                            val globalIndex = indexByPipeId[episode.pipeId] ?: -1
+                            val isCurrent = globalIndex == currentIndex
+                            val itemFocusRequester = if (isCurrent) initialFocusRequester else remember { FocusRequester() }
 
-                        InPlayerEpisodeItemRow(
-                            episode = episode,
-                            artworkUrl = artworkUrl,
-                            isCurrent = isCurrent,
-                            focusRequester = itemFocusRequester,
-                            onClick = {
-                                if (globalIndex >= 0) {
-                                    onSelectEpisode(globalIndex)
-                                    onDismiss()
-                                }
-                            },
-                        )
+                            InPlayerEpisodeItemRow(
+                                episode = episode,
+                                artworkUrl = artworkUrl,
+                                isCurrent = isCurrent,
+                                focusRequester = itemFocusRequester,
+                                onClick = {
+                                    if (globalIndex >= 0) {
+                                        onSelectEpisode(globalIndex)
+                                        onDismiss()
+                                    }
+                                },
+                            )
+                        }
                     }
+
+                    FastScrollbar(
+                        state = listState,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 2.dp),
+                    )
                 }
             }
         }
