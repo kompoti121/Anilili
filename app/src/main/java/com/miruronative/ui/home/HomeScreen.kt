@@ -328,7 +328,6 @@ private fun HomeContent(
     val device = LocalAppDeviceProfile.current
     val chromeBottomInset = LocalAppChromeBottomInset.current
     val continueFocusRequester = remember { FocusRequester() }
-    var isTabExpanded by rememberSaveable { mutableStateOf(false) }
     var isTrendingExpanded by rememberSaveable { mutableStateOf(false) }
     val homeListState = rememberLazyListState()
 
@@ -338,8 +337,7 @@ private fun HomeContent(
                 "history=${history.size} selectedTab=${selectedTab.name}",
         )
     }
-    val fullTabList = data.tab(selectedTab)
-    val catalog = if (isTabExpanded) fullTabList else fullTabList.take(if (device.isTv) 28 else 18)
+    val catalog = data.tab(selectedTab)
     val gridSpacing = if (device.isTv) 16.dp else 9.dp
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -390,8 +388,6 @@ private fun HomeContent(
                     HomeCatalogTabs(
                         selected = selectedTab,
                         onSelect = onSelectTab,
-                        isExpanded = isTabExpanded,
-                        onToggleExpand = { isTabExpanded = !isTabExpanded },
                     )
                 }
                 items(catalog.chunked(columns)) { row ->
@@ -493,60 +489,35 @@ private fun GenrePill(label: String, highlighted: Boolean, onClick: () -> Unit) 
 private fun HomeCatalogTabs(
     selected: HomeTab,
     onSelect: (HomeTab) -> Unit,
-    isExpanded: Boolean = false,
-    onToggleExpand: (() -> Unit)? = null,
 ) {
     val device = LocalAppDeviceProfile.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = device.pagePadding)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = device.pagePadding)
+            .clip(RoundedCornerShape(9.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        HomeTab.entries.forEach { tab ->
+            val active = tab == selected
+            Box(
                 Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    .focusHighlight(RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = .24f) else Color.Transparent)
+                    .clickable { onSelect(tab) }
+                    .padding(vertical = 9.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                HomeTab.entries.forEach { tab ->
-                    val active = tab == selected
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .focusHighlight(RoundedCornerShape(7.dp))
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = .24f) else Color.Transparent)
-                            .clickable { onSelect(tab) }
-                            .padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            tab.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-            if (onToggleExpand != null) {
-                TextButton(
-                    onClick = onToggleExpand,
-                    modifier = Modifier
-                        .padding(start = 6.dp)
-                        .focusHighlight(RoundedCornerShape(8.dp)),
-                ) {
-                    Icon(
-                        if (isExpanded) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (isExpanded) "Carousel" else "Expand")
-                }
+                Text(
+                    tab.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }
