@@ -2,7 +2,7 @@ package com.miruronative.data.auth
 
 import android.content.Context
 import android.net.Uri
-import android.util.Base64
+import com.miruronative.util.Base64Compat
 import java.security.SecureRandom
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,7 +50,7 @@ object AuthManager {
 
     fun authorizeUrl(): String {
         val state = ByteArray(24).also(SecureRandom()::nextBytes)
-            .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
+            .let { Base64Compat.encodeUrlSafe(it) }
         pendingOAuthState = state
         // AniList's implicit flow uses the redirect registered for the client. Supplying the same
         // redirect explicitly currently makes its post-login grant step fail with unsupported_grant_type.

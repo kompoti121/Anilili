@@ -2,8 +2,8 @@ package com.miruronative.data.auth
 
 import android.content.Context
 import android.net.Uri
-import android.util.Base64
 import com.miruronative.diagnostics.DiagnosticsLog
+import com.miruronative.util.Base64Compat
 import java.security.SecureRandom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -175,7 +175,7 @@ object MalAuthManager {
 
     private fun randomUrlSafe(bytes: Int): String = ByteArray(bytes)
         .also(SecureRandom()::nextBytes)
-        .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
+        .let { Base64Compat.encodeUrlSafe(it) }
 }
 
 @Serializable

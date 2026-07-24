@@ -8,6 +8,7 @@ import com.miruronative.data.remote.AnivexaClient
 import com.miruronative.data.remote.JikanClient
 import com.miruronative.data.remote.KonohaClient
 import com.miruronative.data.remote.MalClient
+import com.miruronative.data.remote.OkHttpEngine
 import com.miruronative.data.remote.PipeClient
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -51,13 +52,15 @@ object AppGraph {
             .build()
 
         val aniList = AniListClient(httpClient, json)
+        // KMP-moved clients (in :shared) take the platform-neutral engine instead of OkHttp.
+        val httpEngine = OkHttpEngine(httpClient)
         val cache = AppCache(context, json)
         repository = MiruroRepository(
             aniList = aniList,
             pipe = PipeClient(json),
             anivexa = AnivexaClient(context, httpClient, json, aniList, cache),
-            jikan = JikanClient(httpClient, json),
-            aniSkip = AniSkipClient(httpClient, json),
+            jikan = JikanClient(httpEngine, json),
+            aniSkip = AniSkipClient(httpEngine, json),
             mal = MalClient(httpClient, json),
             konoha = KonohaClient(context, httpClient, json, cache),
             cache = cache,

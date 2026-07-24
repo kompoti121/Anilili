@@ -1,6 +1,5 @@
 package com.miruronative.data.remote
 
-import android.util.Base64
 import com.miruronative.data.ProviderCatalog
 import com.miruronative.data.model.Category
 import com.miruronative.data.model.EpisodeItem
@@ -10,6 +9,7 @@ import com.miruronative.data.model.SkipTimes
 import com.miruronative.data.model.SourcesResult
 import com.miruronative.data.model.StreamItem
 import com.miruronative.data.model.SubtitleItem
+import com.miruronative.util.Base64Compat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -198,18 +198,9 @@ class PipeClient(
 
     // ---- byte helpers ----
 
-    private fun base64UrlEncode(bytes: ByteArray): String =
-        Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    private fun base64UrlEncode(bytes: ByteArray): String = Base64Compat.encodeUrlSafe(bytes)
 
-    private fun base64UrlDecode(s: String): ByteArray {
-        val norm = s.replace('-', '+').replace('_', '/')
-        val padded = when (norm.length % 4) {
-            2 -> "$norm=="
-            3 -> "$norm="
-            else -> norm
-        }
-        return Base64.decode(padded, Base64.NO_WRAP)
-    }
+    private fun base64UrlDecode(s: String): ByteArray = Base64Compat.decode(s)
 
     private fun xor(data: ByteArray, key: ByteArray): ByteArray {
         val out = ByteArray(data.size)

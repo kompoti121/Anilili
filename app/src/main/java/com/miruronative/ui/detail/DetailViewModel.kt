@@ -192,10 +192,12 @@ internal fun mergeEpisodeMetadata(
  */
 internal fun anilistEpisodeCatalog(info: Media): List<EpisodeItem> {
     val releasedBeforeNext = info.nextAiringEpisode?.episode?.minus(1)?.coerceAtLeast(0)
+    // Local capture: smart casts don't cross the module boundary into :shared models.
+    val totalEpisodes = info.episodes
     val count = when {
-        releasedBeforeNext != null && info.episodes != null -> minOf(releasedBeforeNext, info.episodes)
+        releasedBeforeNext != null && totalEpisodes != null -> minOf(releasedBeforeNext, totalEpisodes)
         releasedBeforeNext != null -> releasedBeforeNext
-        else -> info.episodes ?: 0
+        else -> totalEpisodes ?: 0
     }.coerceAtLeast(0)
 
     return (1..count).map { number ->

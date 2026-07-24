@@ -354,8 +354,10 @@ private fun DetailContent(
         when (selectedTab) {
             DetailTab.HOME -> {
                 item { QuickFacts(info) }
-                info.nextAiringEpisode?.airingAt?.let { airingAt ->
-                    item { NextAiringCard(airingAt, info.nextAiringEpisode.episode) }
+                info.nextAiringEpisode?.let { next ->
+                    next.airingAt?.let { airingAt ->
+                        item { NextAiringCard(airingAt, next.episode) }
+                    }
                 }
                 if (info.genres.isNotEmpty()) item { GenreRow(info.genres) }
                 item { Description(info.description) }

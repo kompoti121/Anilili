@@ -133,9 +133,11 @@ class AnivexaClient(
         seedMedia?.let { mediaCache[anilistId] = it }
         val media = media(anilistId)
         val aired = media.nextAiringEpisode?.episode?.minus(1)?.takeIf { it > 0 }
+        // Local capture: smart casts don't cross the module boundary into :shared models.
+        val totalEpisodes = media.episodes
         val count = when {
             media.status == "RELEASING" && aired != null -> aired
-            media.episodes != null && media.episodes > 0 -> media.episodes
+            totalEpisodes != null && totalEpisodes > 0 -> totalEpisodes
             media.format == "MOVIE" -> 1
             else -> 1
         }

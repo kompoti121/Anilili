@@ -65,7 +65,6 @@ import coil.compose.AsyncImage
 import com.miruronative.data.library.HistoryEntry
 import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.Media
-import kotlinx.coroutines.launch
 import com.miruronative.data.model.StudioNode
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.components.WatchProgressBar
@@ -74,6 +73,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 private val TvDetailPadding = 48.dp
 private val TvDetailCardShape = RoundedCornerShape(12.dp)
@@ -579,7 +579,7 @@ private fun TvOverview(info: Media) {
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    "Next episode${info.nextAiringEpisode.episode?.let { " $it" }.orEmpty()}  •  $date",
+                    "Next episode${info.nextAiringEpisode?.episode?.let { " $it" }.orEmpty()}  •  $date",
                     color = Color.White.copy(.64f),
                     modifier = Modifier.padding(start = 8.dp),
                 )

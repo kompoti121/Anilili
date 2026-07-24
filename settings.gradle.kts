@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "MiruroNative"
 include(":app")
+include(":shared")

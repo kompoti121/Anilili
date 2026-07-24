@@ -4,9 +4,9 @@ import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.util.Base64
 import androidx.annotation.RequiresApi
 import com.miruronative.diagnostics.CrashReporter
+import com.miruronative.util.Base64Compat
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -69,8 +69,8 @@ internal class SecureTokenStore(context: Context, private val slotKey: String = 
         cipher.updateAAD(aad)
         val ciphertext = cipher.doFinal(value.toByteArray(StandardCharsets.UTF_8))
         val prefix = if (softwareKey) "$SOFTWARE_KEY_PREFIX:" else ""
-        return prefix + Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
-            Base64.encodeToString(ciphertext, Base64.NO_WRAP)
+        return prefix + Base64Compat.encode(cipher.iv) + ":" +
+            Base64Compat.encode(ciphertext)
     }
 
     private fun decrypt(encoded: String): String {
@@ -78,8 +78,8 @@ internal class SecureTokenStore(context: Context, private val slotKey: String = 
         val softwareKey = parts.size == 3 && parts[0] == SOFTWARE_KEY_PREFIX
         val valueOffset = if (softwareKey) 1 else 0
         require(parts.size == valueOffset + 2) { "Invalid encrypted token" }
-        val iv = Base64.decode(parts[valueOffset], Base64.NO_WRAP)
-        val ciphertext = Base64.decode(parts[valueOffset + 1], Base64.NO_WRAP)
+        val iv = Base64Compat.decode(parts[valueOffset])
+        val ciphertext = Base64Compat.decode(parts[valueOffset + 1])
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, secretKey(softwareKey), GCMParameterSpec(GCM_TAG_BITS, iv))
         cipher.updateAAD(aad)
@@ -96,10 +96,10 @@ internal class SecureTokenStore(context: Context, private val slotKey: String = 
     private fun softwareSecretKey(): SecretKey {
         val stored = prefs.getString(KEY_SOFTWARE_KEY, null)
         val bytes = if (stored != null) {
-            Base64.decode(stored, Base64.NO_WRAP)
+            Base64Compat.decode(stored)
         } else {
             ByteArray(32).also(SecureRandom()::nextBytes).also { generated ->
-                prefs.edit().putString(KEY_SOFTWARE_KEY, Base64.encodeToString(generated, Base64.NO_WRAP)).apply()
+                prefs.edit().putString(KEY_SOFTWARE_KEY, Base64Compat.encode(generated)).apply()
             }
         }
         return SecretKeySpec(bytes, "AES")
