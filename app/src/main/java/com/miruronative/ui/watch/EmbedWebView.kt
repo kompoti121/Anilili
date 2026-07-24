@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
@@ -76,6 +77,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.SkipTimes
 import com.miruronative.data.model.StreamItem
 import com.miruronative.data.settings.CaptionEdgeStyle
@@ -119,6 +121,10 @@ fun EmbedWebView(
     onProgress: ((positionMs: Long, durationMs: Long) -> Unit)? = null,
     onPlaybackError: ((message: String, streamUrl: String, positionMs: Long) -> Unit)? = null,
     onPlaybackStopperChanged: (((() -> Unit)?) -> Unit)? = null,
+    episodes: List<EpisodeItem> = emptyList(),
+    currentIndex: Int = 0,
+    artworkUrl: String? = null,
+    onSelectEpisode: ((Int) -> Unit)? = null,
 ) {
     val device = LocalAppDeviceProfile.current
     val context = LocalContext.current
@@ -171,6 +177,7 @@ fun EmbedWebView(
     var deviceVolume by remember { mutableStateOf(readDeviceVolume(embedAudioManager)) }
     var tvControlsVisible by remember(url) { mutableStateOf(false) }
     var tvControlsInteraction by remember(url) { mutableIntStateOf(0) }
+    var episodeDrawerExpanded by remember(url) { mutableStateOf(false) }
     var touchControlsVisible by remember(url) { mutableStateOf(true) }
     var touchControlsInteraction by remember(url) { mutableIntStateOf(0) }
     var playbackGestureIsPlaying by remember(url) { mutableStateOf<Boolean?>(null) }
@@ -881,6 +888,12 @@ fun EmbedWebView(
                     touchControlsInteraction++
                 },
                 onSettings = { settingsSheetVisible = true },
+                onEpisodes = if (episodes.isNotEmpty() && onSelectEpisode != null) {
+                    {
+                        episodeDrawerExpanded = true
+                        touchControlsInteraction++
+                    }
+                } else null,
                 isFullscreen = isFullscreen,
                 onFullscreen = onToggleFullscreen,
                 onInteract = { touchControlsInteraction++ },
@@ -1025,8 +1038,30 @@ fun EmbedWebView(
                     DiagnosticsLog.event("EmbedWebView TV control settings")
                     settingsSheetVisible = true
                 },
+                onEpisodes = if (episodes.isNotEmpty() && onSelectEpisode != null) {
+                    {
+                        DiagnosticsLog.event("EmbedWebView TV control episodes")
+                        episodeDrawerExpanded = true
+                    }
+                } else null,
                 onFullscreen = onToggleFullscreen,
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
+        if (episodeDrawerExpanded && episodes.isNotEmpty() && onSelectEpisode != null) {
+            InPlayerEpisodeDrawer(
+                episodes = episodes,
+                currentIndex = currentIndex,
+                artworkUrl = artworkUrl,
+                onSelectEpisode = { index ->
+                    episodeDrawerExpanded = false
+                    onSelectEpisode(index)
+                },
+                onDismiss = {
+                    episodeDrawerExpanded = false
+                    restoreTvControlsFocus()
+                },
             )
         }
 

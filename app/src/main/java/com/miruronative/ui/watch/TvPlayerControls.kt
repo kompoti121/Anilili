@@ -36,12 +36,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.miruronative.ui.adaptive.focusHighlight
 
+import androidx.compose.material.icons.automirrored.filled.ViewList
+
 internal enum class TvPlayerControl {
     PREVIOUS,
     REWIND,
     PLAY_PAUSE,
     FORWARD,
     NEXT,
+    EPISODES,
     MUTE,
     SETTINGS,
     FULLSCREEN,
@@ -53,14 +56,16 @@ internal enum class TvPlayerControl {
  * than a level pair — three near-identical speaker glyphs read as one broken control.
  */
 internal fun tvPlayerControlOrder(
-    hasSettings: Boolean,
-    hasFullscreen: Boolean,
+    hasEpisodes: Boolean = false,
+    hasSettings: Boolean = false,
+    hasFullscreen: Boolean = false,
 ): List<TvPlayerControl> = buildList {
     add(TvPlayerControl.PREVIOUS)
     add(TvPlayerControl.REWIND)
     add(TvPlayerControl.PLAY_PAUSE)
     add(TvPlayerControl.FORWARD)
     add(TvPlayerControl.NEXT)
+    if (hasEpisodes) add(TvPlayerControl.EPISODES)
     add(TvPlayerControl.MUTE)
     if (hasSettings) add(TvPlayerControl.SETTINGS)
     if (hasFullscreen) add(TvPlayerControl.FULLSCREEN)
@@ -97,6 +102,7 @@ internal fun TvPlayerControls(
     onForward: () -> Unit,
     onNext: () -> Unit,
     onToggleMute: () -> Unit,
+    onEpisodes: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
     onFullscreen: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -149,6 +155,11 @@ internal fun TvPlayerControls(
                 }
                 TvControlButton("Next episode", enabled = hasNext, onClick = onNext) {
                     Icon(Icons.Default.SkipNext, contentDescription = null)
+                }
+                onEpisodes?.let { callback ->
+                    TvControlButton("Episode list", onClick = callback) {
+                        Icon(Icons.AutoMirrored.Filled.ViewList, contentDescription = null)
+                    }
                 }
                 TvControlButton(if (isMuted) "Unmute" else "Mute", onClick = onToggleMute) {
                     Icon(

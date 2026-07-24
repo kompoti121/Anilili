@@ -144,6 +144,14 @@ class SearchViewModel : ViewModel() {
         update(filters.copy(studioId = null, studioName = null), delayMs = 0)
     }
 
+    /** Applies an exact genre received from a home-pill navigation route. */
+    fun applyGenreFilter(genre: String) {
+        val value = genre.trim()
+        if (value.isEmpty()) return
+        if (filters.genres == setOf(value)) return
+        update(filters.copy(genres = setOf(value)), delayMs = 0)
+    }
+
     /** Applies an exact studio received from a detail-page navigation route. */
     fun applyStudioFilter(studioId: Int, studioName: String) {
         val name = studioName.trim()

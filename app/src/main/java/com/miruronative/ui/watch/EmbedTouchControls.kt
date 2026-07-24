@@ -1,6 +1,7 @@
 package com.miruronative.ui.watch
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Settings
@@ -26,6 +27,7 @@ internal fun EmbedTouchControls(
     onNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onSettings: () -> Unit,
+    onEpisodes: (() -> Unit)? = null,
     isFullscreen: Boolean = false,
     onFullscreen: (() -> Unit)? = null,
     onInteract: () -> Unit = {},
@@ -46,6 +48,16 @@ internal fun EmbedTouchControls(
         onInteract = onInteract,
         modifier = modifier,
     ) {
+        onEpisodes?.let { openEpisodes ->
+            PlayerControlIconButton(
+                "Episode list",
+                Icons.AutoMirrored.Filled.ViewList,
+                onClick = {
+                    openEpisodes()
+                    onInteract()
+                },
+            )
+        }
         PlayerControlIconButton(
             "Settings",
             Icons.Default.Settings,
@@ -66,3 +78,4 @@ internal fun EmbedTouchControls(
         }
     }
 }
+

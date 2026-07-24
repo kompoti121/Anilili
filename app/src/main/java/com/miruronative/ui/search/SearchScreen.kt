@@ -99,6 +99,7 @@ fun SearchScreen(
     tvFieldFocusRequester: FocusRequester? = null,
     initialStudioId: Int? = null,
     initialStudioName: String? = null,
+    initialGenre: String? = null,
 ) {
     val state by vm.state.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
@@ -112,6 +113,10 @@ fun SearchScreen(
     // bar pinned so D-pad focus can always return to the search field.
     val scrollingUp = gridState.isScrollingUp()
     val topBarVisible = device.isTv || scrollingUp
+
+    LaunchedEffect(initialGenre) {
+        initialGenre?.let(vm::applyGenreFilter)
+    }
 
     LaunchedEffect(initialStudioId, initialStudioName) {
         val studioId = initialStudioId ?: return@LaunchedEffect

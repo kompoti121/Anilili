@@ -699,6 +699,10 @@ private fun WatchContent(
                                 onProgress = onProgress,
                                 onPlaybackError = onPlaybackError.takeIf { data.provider == "allanime" },
                                 onPlaybackStopperChanged = onPlaybackStopperChanged,
+                                episodes = data.episodes,
+                                currentIndex = data.currentIndex,
+                                artworkUrl = data.artworkUrl,
+                                onSelectEpisode = onSelectEpisode,
                             )
                             // Embed players often use CSS "web fullscreen" that never reaches the
                             // WebView fullscreen callback, so the app provides its own toggle. On
@@ -747,6 +751,9 @@ private fun WatchContent(
                         hasPreviousEpisode = data.hasPrev,
                         focusPlayerOnStart = fullscreen,
                         isFullscreen = fullscreen,
+                        episodes = data.episodes,
+                        currentIndex = data.currentIndex,
+                        onSelectEpisode = onSelectEpisode,
                     )
                 }
             }

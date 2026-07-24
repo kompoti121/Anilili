@@ -27,7 +27,7 @@ class RoutesTest {
     @Test
     fun `studio search destination remains part of search tab`() {
         assertEquals(
-            "search?studioId={studioId}&studioName={studioName}",
+            "search?studioId={studioId}&studioName={studioName}&genre={genre}",
             Routes.SEARCH_DESTINATION,
         )
         assertEquals(Routes.SEARCH, Routes.tabRoute(Routes.SEARCH_DESTINATION))

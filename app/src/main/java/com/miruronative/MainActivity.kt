@@ -906,6 +906,10 @@ private fun AppNavHost(
                     },
                     onResume = { e -> nav.navigate(Routes.watch(e.anilistId, e.provider, e.category, e.episodeLabel)) },
                     onSearchClick = { nav.navigateTab(Routes.SEARCH) },
+                    onGenreClick = { genre ->
+                        if (genre == null) nav.navigateTab(Routes.SEARCH)
+                        else nav.navigate(Routes.genreSearch(genre)) { launchSingleTop = true }
+                    },
                     onNotificationsClick = { nav.navigate(Routes.NOTIFICATIONS) { launchSingleTop = true } },
                     tvPrimaryFocusRequester = tvHomePrimaryFocusRequester,
                 )
@@ -924,6 +928,11 @@ private fun AppNavHost(
                         type = NavType.IntType
                         defaultValue = -1
                     },
+                    navArgument(Routes.Arg.GENRE) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
                     navArgument(Routes.Arg.STUDIO_NAME) {
                         type = NavType.StringType
                         nullable = true
@@ -937,6 +946,7 @@ private fun AppNavHost(
                     tvFieldFocusRequester = tvSearchFieldFocusRequester,
                     initialStudioId = entry.arguments?.getInt(Routes.Arg.STUDIO_ID)?.takeIf { it > 0 },
                     initialStudioName = entry.arguments?.getString(Routes.Arg.STUDIO_NAME),
+                    initialGenre = entry.arguments?.getString(Routes.Arg.GENRE),
                 )
             }
             composable(Routes.SCHEDULE) {

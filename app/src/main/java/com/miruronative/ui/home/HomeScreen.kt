@@ -1,6 +1,7 @@
 package com.miruronative.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -95,6 +96,7 @@ import com.miruronative.ui.UiState
 import com.miruronative.ui.components.ErrorBox
 import com.miruronative.ui.components.LoadingBox
 import com.miruronative.ui.components.AnimeCard
+import com.miruronative.ui.search.SearchViewModel
 import com.miruronative.ui.components.ContinueWatchingActionsDialog
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
@@ -112,6 +114,7 @@ fun HomeScreen(
     onWatchNow: (Int) -> Unit,
     onResume: (HistoryEntry) -> Unit,
     onSearchClick: () -> Unit,
+    onGenreClick: (String?) -> Unit,
     onNotificationsClick: () -> Unit,
     tvPrimaryFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier,
@@ -253,6 +256,7 @@ fun HomeScreen(
                     onAnimeClick = onAnimeClick,
                     onWatchNow = onWatchNow,
                     onResume = onResume,
+                    onGenreClick = onGenreClick,
                     contentPadding = padding,
                 )
             }
@@ -304,6 +308,7 @@ private fun HomeContent(
     data: HomeData,
     selectedTab: HomeTab,
     onSelectTab: (HomeTab) -> Unit,
+    onGenreClick: (String?) -> Unit,
     history: List<HistoryEntry>,
     onAnimeClick: (Int) -> Unit,
     onWatchNow: (Int) -> Unit,
@@ -353,6 +358,9 @@ private fun HomeContent(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
+                GenrePillRow(onGenreClick = onGenreClick)
+            }
+            item {
                 HeroPager(
                     items = data.spotlight.take(6),
                     onAnimeClick = onAnimeClick,
@@ -384,6 +392,46 @@ private fun HomeContent(
             item { MediaRail("Trending this week", data.spotlight, onAnimeClick, cardWidth) }
         }
     }
+}
+
+/**
+ * Genre shortcuts pinned to the top of the home feed, one horizontally scrolling line. "All"
+ * (null genre) returns to the unfiltered browse tab; every other pill opens Search with that
+ * genre pre-applied, mirroring the studio-navigation pattern.
+ */
+@Composable
+private fun GenrePillRow(onGenreClick: (String?) -> Unit) {
+    val device = LocalAppDeviceProfile.current
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = device.pagePadding),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item(key = "all") {
+            GenrePill(label = "All", highlighted = true, onClick = { onGenreClick(null) })
+        }
+        items(SearchViewModel.DEFAULT_GENRES, key = { it }) { genre ->
+            GenrePill(label = genre, highlighted = false, onClick = { onGenreClick(genre) })
+        }
+    }
+}
+
+@Composable
+private fun GenrePill(label: String, highlighted: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (highlighted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = if (highlighted) FontWeight.Bold else FontWeight.SemiBold,
+        modifier = Modifier
+            .focusHighlight(shape)
+            .clip(shape)
+            .background(if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .6f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    )
 }
 
 @Composable

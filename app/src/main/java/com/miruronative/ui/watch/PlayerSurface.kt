@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Fullscreen
@@ -88,6 +89,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.DefaultTrackNameProvider
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
+import com.miruronative.data.model.EpisodeItem
 import com.miruronative.data.model.SkipTimes
 import com.miruronative.data.model.StreamItem
 import com.miruronative.data.model.SubtitleItem
@@ -220,6 +222,9 @@ fun PlayerSurface(
     isFullscreen: Boolean = false,
     subtitleOffsetMs: Long = 0L,
     notificationRoute: String? = null,
+    episodes: List<EpisodeItem> = emptyList(),
+    currentIndex: Int = 0,
+    onSelectEpisode: ((Int) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val device = LocalAppDeviceProfile.current
@@ -252,6 +257,7 @@ fun PlayerSurface(
     var lastUserSeekRealtimeMs by remember(stream.url) { mutableLongStateOf(Long.MIN_VALUE) }
     var lastUserSeekTargetMs by remember(stream.url) { mutableLongStateOf(startPositionMs.coerceAtLeast(0L)) }
     var seekErrorRecoveryDone by remember(stream.url) { mutableStateOf(false) }
+    var episodeDrawerExpanded by remember(stream.url) { mutableStateOf(false) }
     val nativeQualityStreams = remember(stream.url, qualityStreams) {
         (listOf(stream) + qualityStreams)
             .filterNot(StreamItem::isEmbed)
@@ -915,6 +921,16 @@ fun PlayerSurface(
                 },
                 onInteract = { phoneControlsInteraction++ },
             ) {
+                if (episodes.isNotEmpty() && onSelectEpisode != null) {
+                    PlayerControlIconButton(
+                        "Episode list",
+                        Icons.AutoMirrored.Filled.ViewList,
+                        onClick = {
+                            episodeDrawerExpanded = true
+                            phoneControlsInteraction++
+                        },
+                    )
+                }
                 PlayerControlIconButton(
                     "Subtitles",
                     Icons.Default.ClosedCaption,
@@ -1069,8 +1085,30 @@ fun PlayerSurface(
                     DiagnosticsLog.event("PlayerSurface TV control settings")
                     settingsExpanded = true
                 },
+                onEpisodes = if (episodes.isNotEmpty() && onSelectEpisode != null) {
+                    {
+                        DiagnosticsLog.event("PlayerSurface TV control episodes")
+                        episodeDrawerExpanded = true
+                    }
+                } else null,
                 onFullscreen = onToggleFullscreen,
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
+        if (episodeDrawerExpanded && episodes.isNotEmpty() && onSelectEpisode != null) {
+            InPlayerEpisodeDrawer(
+                episodes = episodes,
+                currentIndex = currentIndex,
+                artworkUrl = artworkUrl,
+                onSelectEpisode = { index ->
+                    episodeDrawerExpanded = false
+                    onSelectEpisode(index)
+                },
+                onDismiss = {
+                    episodeDrawerExpanded = false
+                    restoreTvControlsFocus()
+                },
             )
         }
 

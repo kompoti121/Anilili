@@ -158,7 +158,7 @@ fun EpisodeBrowserBar(
 }
 
 @Composable
-private fun EpisodeBlockPicker(
+internal fun EpisodeBlockPicker(
     blocks: List<EpisodeBlock>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,

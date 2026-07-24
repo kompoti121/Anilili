@@ -24,8 +24,8 @@ android {
         // Fire OS 5 devices (including the 1st/2nd-gen Fire TV Sticks) report API 22.
         minSdk = 22
         targetSdk = 36
-        versionCode = 42
-        versionName = "0.1.41"
+        versionCode = 43
+        versionName = "0.1.42"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
