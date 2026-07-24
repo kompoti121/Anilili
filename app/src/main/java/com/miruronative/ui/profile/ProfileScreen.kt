@@ -17,17 +17,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -78,10 +84,11 @@ import com.miruronative.ui.UiState
 import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.TvNativeTextField
 import com.miruronative.ui.adaptive.focusHighlight
-import com.miruronative.ui.components.PullRefreshContainer
 import com.miruronative.ui.components.ContinueWatchingActionsDialog
-import com.miruronative.ui.components.RatingBadge
+import com.miruronative.ui.components.FastScrollbar
 import com.miruronative.ui.components.LocalAppChromeBottomInset
+import com.miruronative.ui.components.PullRefreshContainer
+import com.miruronative.ui.components.RatingBadge
 import com.miruronative.ui.components.ScrollAwareTopBar
 import com.miruronative.playback.EpisodeDownload
 import com.miruronative.playback.EpisodeDownloadState
@@ -207,6 +214,11 @@ fun ProfileScreen(
                 (titleFilter.isBlank() || entry.title.contains(titleFilter, ignoreCase = true))
         }
     }
+    var isLibraryExpanded by rememberSaveable { mutableStateOf(false) }
+    var isHistoryExpanded by rememberSaveable { mutableStateOf(false) }
+    var isDownloadsExpanded by rememberSaveable { mutableStateOf(false) }
+    val profileListState = rememberLazyListState()
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -221,121 +233,206 @@ fun ProfileScreen(
             onRefresh = vm::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Chrome reserved as scroll padding, not layout padding: the list runs the full height
-            // so rows pass under the bars rather than leaving a dead band where one used to be.
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding(),
-                    bottom = padding.calculateBottomPadding() + LocalAppChromeBottomInset.current + 28.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-            item {
-                ProfileHero(
-                    loggedIn = loggedIn,
-                    state = profileState,
-                    onLogin = { loginService = it },
-                    onSync = { vm.loadIfLoggedIn() },
-                    onLogout = vm::logout,
-                )
-            }
-
-            profile?.let { loaded ->
-                item { ProfileStats(loaded) }
-            }
-
-            item {
-                LibraryFilters(
-                    selectedView = selectedView,
-                    onViewChange = { selectedViewName = it.name },
-                    selectedFormat = selectedFormat,
-                    onFormatChange = { selectedFormat = it },
-                    selectedAiring = selectedAiring,
-                    onAiringChange = { selectedAiring = it },
-                    titleFilter = titleFilter,
-                    onTitleFilterChange = { titleFilter = it },
-                    resultCount = selectedCards.size,
-                    showAniListLists = profile != null,
-                )
-            }
-            item {
-                val serviceLabel = profile?.service?.label ?: "AniList"
-                ProfileSectionTitle(
-                    selectedView.label,
-                    if (selectedView == LibraryView.WATCHLIST) "Saved here and in $serviceLabel Planning" else "Synced from $serviceLabel",
-                )
-            }
-            if (selectedCards.isEmpty()) {
-                item {
-                    EmptyPanel(
-                        if (selectedView == LibraryView.WATCHLIST && selectedFormat == null && selectedAiring == null && titleFilter.isBlank()) {
-                            "Tap the heart on any anime to save it"
-                        } else {
-                            "No anime match these filters"
-                        },
-                    )
-                }
-            } else {
-                item {
-                    LazyRow(
-                        modifier = Modifier.focusGroup(),
-                        contentPadding = PaddingValues(horizontal = device.pagePadding),
-                        horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 12.dp),
-                    ) {
-                        items(selectedCards, key = { it.id }) { entry ->
-                            SavedAnimeCard(entry, onAnimeClick)
-                        }
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = profileListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top = padding.calculateTopPadding(),
+                        bottom = padding.calculateBottomPadding() + LocalAppChromeBottomInset.current + 28.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
+                        ProfileHero(
+                            loggedIn = loggedIn,
+                            state = profileState,
+                            onLogin = { loginService = it },
+                            onSync = { vm.loadIfLoggedIn() },
+                            onLogout = vm::logout,
+                        )
                     }
-                }
-            }
 
-            item {
-                ProfileSectionTitle(
-                    "Downloads",
-                    "Episodes saved on this device for offline viewing",
-                )
-            }
-            if (episodeDownloads.isEmpty()) {
-                item { EmptyPanel("Download a native-stream episode from its watch page") }
-            } else {
-                item {
-                    LazyRow(
-                        modifier = Modifier.focusGroup(),
-                        contentPadding = PaddingValues(horizontal = device.pagePadding),
-                        horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 12.dp),
-                    ) {
-                        items(episodeDownloads, key = EpisodeDownload::id) { download ->
-                            EpisodeDownloadCard(
-                                download = download,
-                                onPlay = { onPlayDownload(download.id) },
-                                onRemove = { EpisodeDownloads.remove(context, download.id) },
+                    profile?.let { loaded ->
+                        item { ProfileStats(loaded) }
+                    }
+
+                    item {
+                        LibraryFilters(
+                            selectedView = selectedView,
+                            onViewChange = { selectedViewName = it.name },
+                            selectedFormat = selectedFormat,
+                            onFormatChange = { selectedFormat = it },
+                            selectedAiring = selectedAiring,
+                            onAiringChange = { selectedAiring = it },
+                            titleFilter = titleFilter,
+                            onTitleFilterChange = { titleFilter = it },
+                            resultCount = selectedCards.size,
+                            showAniListLists = profile != null,
+                        )
+                    }
+
+                    item {
+                        val serviceLabel = profile?.service?.label ?: "AniList"
+                        ProfileSectionTitle(
+                            title = selectedView.label,
+                            subtitle = if (selectedView == LibraryView.WATCHLIST) "Saved here and in $serviceLabel Planning" else "Synced from $serviceLabel",
+                            isExpanded = isLibraryExpanded,
+                            onToggleExpand = { isLibraryExpanded = !isLibraryExpanded },
+                        )
+                    }
+                    if (selectedCards.isEmpty()) {
+                        item {
+                            EmptyPanel(
+                                if (selectedView == LibraryView.WATCHLIST && selectedFormat == null && selectedAiring == null && titleFilter.isBlank()) {
+                                    "Tap the heart on any anime to save it"
+                                } else {
+                                    "No anime match these filters"
+                                },
                             )
                         }
+                    } else if (isLibraryExpanded) {
+                        val columns = device.posterColumns
+                        val cardRows = selectedCards.chunked(columns)
+                        itemsIndexed(cardRows, key = { rowIndex, _ -> "lib_row_$rowIndex" }) { _, row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = device.pagePadding, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                for (entry in row) {
+                                    SavedAnimeCard(
+                                        entry = entry,
+                                        onAnimeClick = onAnimeClick,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                repeat(columns - row.size) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            LazyRow(
+                                modifier = Modifier.focusGroup(),
+                                contentPadding = PaddingValues(horizontal = device.pagePadding),
+                                horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 12.dp),
+                            ) {
+                                items(selectedCards, key = { it.id }) { entry ->
+                                    SavedAnimeCard(entry, onAnimeClick)
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        ProfileSectionTitle(
+                            title = "Continue Watching",
+                            subtitle = "Long-press a title to remove it or move it on your anime list",
+                            isExpanded = isHistoryExpanded,
+                            onToggleExpand = { isHistoryExpanded = !isHistoryExpanded },
+                        )
+                    }
+                    if (history.isEmpty()) {
+                        item { EmptyPanel("Nothing watched yet") }
+                    } else if (isHistoryExpanded) {
+                        val columns = device.posterColumns
+                        val historyRows = history.chunked(columns)
+                        itemsIndexed(historyRows, key = { rowIndex, _ -> "hist_row_$rowIndex" }) { _, row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = device.pagePadding, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                for (entry in row) {
+                                    HistoryCard(
+                                        entry = entry,
+                                        onResume = onResume,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                repeat(columns - row.size) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            LazyRow(
+                                modifier = Modifier.focusGroup(),
+                                contentPadding = PaddingValues(horizontal = device.pagePadding),
+                                horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 12.dp),
+                            ) {
+                                items(history, key = { it.anilistId }) { entry -> HistoryCard(entry, onResume) }
+                            }
+                        }
+                    }
+
+                    item {
+                        ProfileSectionTitle(
+                            title = "Downloads",
+                            subtitle = "Episodes saved on this device for offline viewing",
+                            isExpanded = isDownloadsExpanded,
+                            onToggleExpand = { isDownloadsExpanded = !isDownloadsExpanded },
+                        )
+                    }
+                    if (episodeDownloads.isEmpty()) {
+                        item { EmptyPanel("Download a native-stream episode from its watch page") }
+                    } else if (isDownloadsExpanded) {
+                        val downloadColumns = if (device.isTv) 3 else 2
+                        val downloadRows = episodeDownloads.chunked(downloadColumns)
+                        itemsIndexed(downloadRows, key = { rowIndex, _ -> "dl_row_$rowIndex" }) { _, row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = device.pagePadding, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                for (download in row) {
+                                    EpisodeDownloadCard(
+                                        download = download,
+                                        onPlay = { onPlayDownload(download.id) },
+                                        onRemove = { EpisodeDownloads.remove(context, download.id) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                repeat(downloadColumns - row.size) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            LazyRow(
+                                modifier = Modifier.focusGroup(),
+                                contentPadding = PaddingValues(horizontal = device.pagePadding),
+                                horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 12.dp),
+                            ) {
+                                items(episodeDownloads, key = EpisodeDownload::id) { download ->
+                                    EpisodeDownloadCard(
+                                        download = download,
+                                        onPlay = { onPlayDownload(download.id) },
+                                        onRemove = { EpisodeDownloads.remove(context, download.id) },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-            }
 
-            item {
-                ProfileSectionTitle(
-                    "Continue Watching",
-                    "Long-press a title to remove it or move it on your anime list",
+                FastScrollbar(
+                    state = profileListState,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(
+                            top = padding.calculateTopPadding() + 8.dp,
+                            bottom = padding.calculateBottomPadding() + LocalAppChromeBottomInset.current + 8.dp,
+                            end = 2.dp,
+                        ),
                 )
-            }
-            if (history.isEmpty()) {
-                item { EmptyPanel("Nothing watched yet") }
-            } else {
-                item {
-                    LazyRow(
-                        modifier = Modifier.focusGroup(),
-                        contentPadding = PaddingValues(horizontal = device.pagePadding),
-                        horizontalArrangement = Arrangement.spacedBy(if (device.isTv) 18.dp else 12.dp),
-                    ) {
-                        items(history, key = { it.anilistId }) { entry -> HistoryCard(entry, onResume) }
-                    }
-                }
-            }
-
             }
         }
     }
@@ -575,11 +672,38 @@ private fun SelectorField(
 }
 
 @Composable
-private fun ProfileSectionTitle(title: String, subtitle: String) {
+private fun ProfileSectionTitle(
+    title: String,
+    subtitle: String,
+    isExpanded: Boolean? = null,
+    onToggleExpand: (() -> Unit)? = null,
+) {
     val device = LocalAppDeviceProfile.current
-    Column(Modifier.padding(horizontal = device.pagePadding, vertical = 4.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-        Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = device.pagePadding, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (onToggleExpand != null && isExpanded != null) {
+            TextButton(
+                onClick = onToggleExpand,
+                modifier = Modifier.focusHighlight(RoundedCornerShape(8.dp)),
+            ) {
+                Icon(
+                    if (isExpanded) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(if (isExpanded) "Carousel" else "Expand")
+            }
+        }
     }
 }
 
@@ -588,13 +712,17 @@ private fun EpisodeDownloadCard(
     download: EpisodeDownload,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val device = LocalAppDeviceProfile.current
     val shape = RoundedCornerShape(12.dp)
+    val cardModifier = if (modifier != Modifier) {
+        modifier.focusHighlight(shape)
+    } else {
+        Modifier.width(if (device.isTv) 320.dp else 270.dp).focusHighlight(shape)
+    }
     Surface(
-        modifier = Modifier
-            .width(if (device.isTv) 320.dp else 270.dp)
-            .focusHighlight(shape),
+        modifier = cardModifier,
         shape = shape,
         color = MaterialTheme.colorScheme.surface,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -703,13 +831,26 @@ private fun EpisodeDownloadCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HistoryCard(entry: HistoryEntry, onResume: (HistoryEntry) -> Unit) {
+private fun HistoryCard(
+    entry: HistoryEntry,
+    onResume: (HistoryEntry) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val device = LocalAppDeviceProfile.current
     var actionsVisible by remember { mutableStateOf(false) }
     if (actionsVisible) {
         ContinueWatchingActionsDialog(entry = entry, onDismiss = { actionsVisible = false })
     }
-    Column(
+    val cardModifier = if (modifier != Modifier) {
+        modifier
+            .focusHighlight()
+            .combinedClickable(
+                onClickLabel = "Resume ${entry.title}",
+                onLongClickLabel = "Manage Continue Watching",
+                onClick = { onResume(entry) },
+                onLongClick = { actionsVisible = true },
+            )
+    } else {
         Modifier
             .width(device.posterWidth)
             .focusHighlight()
@@ -718,8 +859,9 @@ private fun HistoryCard(entry: HistoryEntry, onResume: (HistoryEntry) -> Unit) {
                 onLongClickLabel = "Manage Continue Watching",
                 onClick = { onResume(entry) },
                 onLongClick = { actionsVisible = true },
-            ),
-    ) {
+            )
+    }
+    Column(cardModifier) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
@@ -751,9 +893,18 @@ private fun formatDownloadBytes(bytes: Long): String = when {
 }
 
 @Composable
-private fun SavedAnimeCard(entry: SavedAnimeCardData, onAnimeClick: (Int) -> Unit) {
+private fun SavedAnimeCard(
+    entry: SavedAnimeCardData,
+    onAnimeClick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val device = LocalAppDeviceProfile.current
-    Column(Modifier.width(device.posterWidth).focusHighlight().clickable { onAnimeClick(entry.id) }) {
+    val cardModifier = if (modifier != Modifier) {
+        modifier.focusHighlight().clickable { onAnimeClick(entry.id) }
+    } else {
+        Modifier.width(device.posterWidth).focusHighlight().clickable { onAnimeClick(entry.id) }
+    }
+    Column(cardModifier) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         ) {

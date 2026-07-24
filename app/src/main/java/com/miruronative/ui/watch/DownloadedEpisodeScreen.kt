@@ -1,5 +1,9 @@
 package com.miruronative.ui.watch
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -7,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -26,13 +31,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.miruronative.data.model.StreamItem
 import com.miruronative.playback.EpisodeDownloadState
 import com.miruronative.playback.EpisodeDownloads
 import com.miruronative.playback.PlaybackService
+import com.miruronative.ui.adaptive.LocalAppDeviceProfile
 import com.miruronative.ui.adaptive.focusHighlight
 import com.miruronative.ui.nav.Routes
-import androidx.compose.foundation.shape.CircleShape
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 /** Full player entry point for an episode already persisted in Media3's download cache. */
 @Composable
@@ -41,6 +57,8 @@ fun DownloadedEpisodeScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val device = LocalAppDeviceProfile.current
     val downloads by EpisodeDownloads.downloads(context).collectAsState()
     val download = downloads.firstOrNull { it.id == downloadId }
     var playbackError by remember(downloadId) { mutableStateOf<String?>(null) }
@@ -52,6 +70,29 @@ fun DownloadedEpisodeScreen(
     BackHandler(onBack = leave)
     DisposableEffect(Unit) {
         onDispose { PlaybackService.pauseActivePlayback() }
+    }
+
+    // Auto rotate downloaded video to fullscreen landscape without needing to rotate device manually
+    DisposableEffect(Unit, device.isTv) {
+        val window = activity?.window
+        if (activity != null && window != null) {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            if (!device.isTv) {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            val w = activity?.window
+            if (activity != null && w != null) {
+                if (!device.isTv) {
+                    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+                WindowInsetsControllerCompat(w, w.decorView).show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {

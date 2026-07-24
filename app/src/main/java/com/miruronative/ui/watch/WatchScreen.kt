@@ -208,6 +208,12 @@ fun WatchScreen(
             is UiState.Error -> DiagnosticsLog.event("WatchScreen error visible message=${s.message.take(160)}")
             is UiState.Success -> {
                 val stream = s.data.chosenStream
+                if (stream?.quality.equals("Downloaded", ignoreCase = true) ||
+                    stream?.url?.startsWith("file:", ignoreCase = true) == true ||
+                    stream?.url?.startsWith("content:", ignoreCase = true) == true
+                ) {
+                    fullscreen = true
+                }
                 DiagnosticsLog.event(
                     "WatchScreen success visible provider=${s.data.provider} episode=${s.data.current.displayNumber} " +
                         "stream=${stream?.let { if (it.isEmbed) "embed" else if (it.isHls) "hls" else "direct" } ?: "none"} " +

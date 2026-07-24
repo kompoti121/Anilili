@@ -65,6 +65,15 @@ data class AppDeviceProfile(
             isTablet -> 6
             else -> 5
         }
+
+    val posterColumns: Int
+        get() = when {
+            isTv -> 6
+            widthDp >= 1_000 -> 7
+            isExpanded -> 6
+            isTablet -> 4
+            else -> 3
+        }
 }
 
 fun resolveAppDeviceProfile(uiModeType: Int, widthDp: Int): AppDeviceProfile {
