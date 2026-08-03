@@ -20,15 +20,14 @@
 
 <p align="center">
   <a href="https://github.com/kompoti121/Anilili/releases/latest"><img src="https://img.shields.io/github/v/release/kompoti121/Anilili?style=flat-square&label=release&color=8979F2" alt="Latest GitHub release" /></a>
-  <a href="https://github.com/kompoti121/Anilili/releases"><img src="https://img.shields.io/github/downloads/kompoti121/Anilili/total?style=flat-square&label=downloads&color=8979F2" alt="Total GitHub downloads" /></a>
   <img src="https://img.shields.io/badge/Android-5.1%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android 5.1 and newer" />
   <img src="https://img.shields.io/badge/Kotlin-Native_UI-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Built with Kotlin" />
   <img src="https://img.shields.io/badge/Android_TV-Fire_TV-FF9900?style=flat-square&logo=amazonfiretv&logoColor=white" alt="Android TV and Fire TV" />
 </p>
 
 <p align="center">
-  <a href="https://kompoti121.github.io/Anilili/">Website</a> ·
-  <a href="https://github.com/kompoti121/Anilili/releases">All releases</a> ·
+  <a href="https://t.me/anililiapk">Get the app</a> ·
+  <a href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
   <a href="https://github.com/kompoti121/Anilili/issues">Report a problem</a>
 </p>
 
@@ -123,7 +122,7 @@ sources. Availability can vary by title, language, region, and provider uptime.
 On a TV or Fire TV device, take the **TV build** from the same group — transfer it from a phone, or
 open Telegram on the TV — then install it with the system package installer.
 
-Every build below is posted in the group. Pick the file that matches the device; the plain
+Every build is posted in the group. Pick the file that matches the device; the plain
 `Anilili.apk` and `Anilili_tv.apk` run everywhere and are the safe choice if unsure.
 
 ### Phones and tablets
@@ -164,106 +163,6 @@ the app's shared diagnostics ZIP when appropriate.
     <img src="https://img.shields.io/badge/Report_a_Bug-24292F?style=for-the-badge&logo=github&logoColor=white" alt="Report a bug on GitHub" />
   </a>
 </p>
-
-## Build from source
-
-<details>
-  <summary>Developer setup and release notes</summary>
-
-### Requirements
-
-- JDK 17
-- Android Studio or Android SDK API 36
-- Gradle 8.13 when building without the included wrapper
-
-### Build
-
-```bash
-./gradlew assembleDebug
-```
-
-On Windows:
-
-```powershell
-gradlew.bat assembleDebug
-```
-
-The app builds in two product flavors on one codebase — `mobile` and `tv` — and each produces a
-universal APK plus `arm64-v8a` and `armeabi-v7a` variants:
-
-```bash
-./gradlew assembleMobileRelease assembleTvRelease
-```
-
-The in-app updater depends on these six release asset names:
-
-- `Anilili.apk`, `Anilili_arm64-v8a.apk`, `Anilili_armeabi-v7a.apk` (phones and tablets)
-- `Anilili_tv.apk`, `Anilili_tv_arm64-v8a.apk`, `Anilili_tv_armeabi-v7a.apk` (TV)
-
-The underscore before the ABI is intentional. It keeps the universal phone APK first in GitHub's
-asset ordering so older app versions do not accidentally download an incompatible build. **Upload
-the phone assets before the TV ones:** the GitHub API returns assets in upload order, and updaters
-from 0.1.33–0.1.55 take the first name containing their ABI, which would otherwise match a `_tv`
-asset. From 0.1.56 the updater filters by form factor first and only falls back to the phone
-family when a release has no TV assets.
-
-### Publishing an update (every version bump)
-
-The in-app updater has two channels: the GitHub Releases API (primary) and a signed Nostr
-manifest (fallback, used when GitHub is unreachable or the repo is gone). Both must be updated
-on every release so they never disagree:
-
-1. Bump `appVersionCode` and `appVersionName` in `app/build.gradle.kts`.
-2. Build the release APKs: `./gradlew assembleMobileRelease assembleTvRelease` (produces the six
-   assets listed above).
-3. Create/edit the rolling GitHub release with all six APKs attached, phone assets uploaded first.
-4. Publish the same release to Nostr:
-
-   ```bash
-   scripts/.venv/Scripts/python scripts/nostr_update.py publish \
-     --version 0.1.60 \
-     --apk-url "https://github.com/kompoti121/Anilili/releases/latest/download/Anilili.apk" \
-     --tv-apk-url "https://github.com/kompoti121/Anilili/releases/latest/download/Anilili_tv.apk" \
-     --changelog "What changed in this release" \
-     --size-bytes 12345678 \
-     --tv-size-bytes 12345678
-   ```
-
-   `--apk-url` must stay the **phone** build: installs published before the flavor split read only
-   that field. The TV URL rides in a `variants` object that older apps ignore. The script warns if
-   you omit `--tv-apk-url`, which would send Android TV devices the phone build.
-
-   Verify what apps will see with `scripts/nostr_update.py fetch`.
-
-**If GitHub suspends the account or removes the repo:** upload the release APKs to any mirror
-(GitLab, Cloudflare R2, a plain VPS — anything with a direct HTTPS link), then run step 4 with
-`--apk-url` pointing at the mirror. Every installed app (v0.1.54+) will find the signed manifest
-on Nostr and update from the new host. No app-side change is needed.
-
-Setup and key handling for the Nostr channel:
-
-- One-time setup: `python -m venv scripts/.venv`, then
-  `scripts/.venv/Scripts/pip install -r scripts/requirements.txt`.
-- The signing key lives in `nostr-update-key.properties` at the repo root (gitignored).
-  **Back it up alongside `keystore/anilili-release.jks`** — losing it means losing the ability
-  to repoint updates for already-installed apps. The matching pubkey is baked into
-  `NostrUpdateSource.MANIFEST_PUBKEY_HEX`; never rotate the key without shipping an app update
-  that carries the new pubkey.
-- The manifest is a Nostr addressable event (kind 30078, d-tag `anilili-update`); relays keep
-  only the newest one, so publishing is the whole update — there is nothing to clean up.
-
-### Project map
-
-| Path | Purpose |
-| --- | --- |
-| `app/src/main/java/com/miruronative/data` | Models, provider catalog, storage, and sync |
-| `app/src/main/java/com/miruronative/data/remote` | AniList, MAL, Miruro, and provider clients |
-| `app/src/main/java/com/miruronative/ui` | Compose screens and player UI |
-| `showcase/mobile` and `showcase/tv` | Optimized screenshots used in this README |
-| `docs/` | GitHub Pages website and protocol notes |
-| `docs/PIPE_PROTOCOL.md` | Miruro pipe protocol documentation |
-
-</details>
 
 ## Disclaimer
 
