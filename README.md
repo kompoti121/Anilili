@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-  <a href="https://t.me/anililiapk">
-    <img src="https://img.shields.io/badge/Get_the_APK-8979F2?style=for-the-badge&logo=telegram&logoColor=white" alt="Get the Anilili APK on Telegram" />
+  <a href="https://discord.gg/wZmNumfC9">
+    <img src="https://img.shields.io/badge/Get_the_APK-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Get the Anilili APK on Discord" />
   </a>
-  <a href="https://t.me/anililiapk">
-    <img src="https://img.shields.io/badge/Join_Telegram-229ED9?style=for-the-badge&logo=telegram&logoColor=white" alt="Join the Anilili Telegram group" />
+  <a href="https://discord.gg/wZmNumfC9">
+    <img src="https://img.shields.io/badge/Join_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Anilili Discord server" />
   </a>
 </p>
 
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <a href="https://t.me/anililiapk">Get the app</a> ·
+  <a href="https://discord.gg/wZmNumfC9">Get the app</a> ·
   <a href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
   <a href="https://github.com/kompoti121/Anilili/issues">Report a problem</a>
 </p>
@@ -109,18 +109,18 @@ sources. Availability can vary by title, language, region, and provider uptime.
 
 ## Install
 
-1. Open the Telegram group below and download the **Universal APK** posted there.
-2. Open the APK and allow installation from Telegram or your file manager if Android asks.
+1. Open the Discord server below and download the **Universal APK** posted there.
+2. Open the APK and allow installation from Discord or your file manager if Android asks.
 3. Launch Anilili. Signing in to AniList or MyAnimeList is optional.
 
 <p align="center">
-  <a href="https://t.me/anililiapk">
-    <img src="https://img.shields.io/badge/Get_the_APK_on_Telegram-8979F2?style=for-the-badge&logo=telegram&logoColor=white" alt="Get the APK on Telegram" />
+  <a href="https://discord.gg/wZmNumfC9">
+    <img src="https://img.shields.io/badge/Get_the_APK_on_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Get the APK on Discord" />
   </a>
 </p>
 
-On a TV or Fire TV device, take the **TV build** from the same group — transfer it from a phone, or
-open Telegram on the TV — then install it with the system package installer.
+On a TV or Fire TV device, take the **TV build** from the same server — transfer it from a phone, or
+open Discord on the TV — then install it with the system package installer.
 
 Every build is posted in the group. Pick the file that matches the device; the plain
 `Anilili.apk` and `Anilili_tv.apk` run everywhere and are the safe choice if unsure.
@@ -151,13 +151,13 @@ build.
 
 ## Community and support
 
-The Telegram group is the quickest place for release announcements, help, feedback, and
+The Discord server is the quickest place for release announcements, help, feedback, and
 provider-status discussions. For reproducible bugs, you can also open a GitHub issue and attach
 the app's shared diagnostics ZIP when appropriate.
 
 <p align="center">
-  <a href="https://t.me/anililiapk">
-    <img src="https://img.shields.io/badge/Join_the_Telegram_Group-229ED9?style=for-the-badge&logo=telegram&logoColor=white" alt="Join the Telegram group" />
+  <a href="https://discord.gg/wZmNumfC9">
+    <img src="https://img.shields.io/badge/Join_the_Discord_Server-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Discord server" />
   </a>
   <a href="https://github.com/kompoti121/Anilili/issues/new">
     <img src="https://img.shields.io/badge/Report_a_Bug-24292F?style=for-the-badge&logo=github&logoColor=white" alt="Report a bug on GitHub" />
