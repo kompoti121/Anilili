@@ -106,11 +106,7 @@ sources. Availability can vary by title, language, region, and provider uptime.
 2. Open the APK and allow installation from Discord or your file manager if Android asks.
 3. Launch Anilili. Signing in to AniList or MyAnimeList is optional.
 
-<p align="center">
-  <a href="https://discord.gg/wZmNumfC9">
-    <img src="https://img.shields.io/badge/Get_the_APK_on_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Get the APK on Discord" />
-  </a>
-</p>
+
 
 On a TV or Fire TV device, take the **TV build** from the same server — transfer it from a phone, or
 open Discord on the TV — then install it with the system package installer.
