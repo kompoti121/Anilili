@@ -19,8 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/wZmNumfC9">Get the app</a> ·
-  <a href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
+   href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
   <a href="https://github.com/kompoti121/Anilili/issues">Report a problem</a>
 </p>
 
