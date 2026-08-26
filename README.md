@@ -9,14 +9,7 @@
   Fast multi-source playback, offline downloads, AniList/MAL sync, and a remote-first TV experience.
 </p>
 
-<p align="center">
-  <a href="https://discord.gg/wZmNumfC9">
-    <img src="https://img.shields.io/badge/Get_the_APK-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Get the Anilili APK on Discord" />
-  </a>
-  <a href="https://discord.gg/wZmNumfC9">
-    <img src="https://img.shields.io/badge/Join_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Anilili Discord server" />
-  </a>
-</p>
+
 
 <p align="center">
   <a href="https://github.com/kompoti121/Anilili/releases/latest"><img src="https://img.shields.io/github/v/release/kompoti121/Anilili?style=flat-square&label=release&color=8979F2" alt="Latest GitHub release" /></a>
