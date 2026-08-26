@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-   href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
+   <a href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
   <a href="https://github.com/kompoti121/Anilili/issues">Report a problem</a>
 </p>
 
