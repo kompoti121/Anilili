@@ -99,11 +99,6 @@ sources. Availability can vary by title, language, region, and provider uptime.
 
 </details>
 
-## Install
-
-1. Open the Discord server below and download the **Universal APK** posted there.
-2. Open the APK and allow installation from Discord or your file manager if Android asks.
-3. Launch Anilili. Signing in to AniList or MyAnimeList is optional.
 
 
 
