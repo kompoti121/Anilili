@@ -9,7 +9,14 @@
   Fast multi-source playback, offline downloads, AniList/MAL sync, and a remote-first TV experience.
 </p>
 
-
+<p align="center">
+  <a href="https://discord.gg/wZmNumfC9">
+    <img src="https://img.shields.io/badge/Get_the_APK-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Get the Anilili APK on Discord" />
+  </a>
+  <a href="https://discord.gg/wZmNumfC9">
+    <img src="https://img.shields.io/badge/Join_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Anilili Discord server" />
+  </a>
+</p>
 
 <p align="center">
   <a href="https://github.com/kompoti121/Anilili/releases/latest"><img src="https://img.shields.io/github/v/release/kompoti121/Anilili?style=flat-square&label=release&color=8979F2" alt="Latest GitHub release" /></a>
@@ -19,7 +26,8 @@
 </p>
 
 <p align="center">
-   <a href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
+  <a href="https://discord.gg/wZmNumfC9">Get the app</a> ·
+  <a href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
   <a href="https://github.com/kompoti121/Anilili/issues">Report a problem</a>
 </p>
 
@@ -99,8 +107,17 @@ sources. Availability can vary by title, language, region, and provider uptime.
 
 </details>
 
+## Install
 
+1. Open the Discord server below and download the **Universal APK** posted there.
+2. Open the APK and allow installation from Discord or your file manager if Android asks.
+3. Launch Anilili. Signing in to AniList or MyAnimeList is optional.
 
+<p align="center">
+  <a href="https://discord.gg/wZmNumfC9">
+    <img src="https://img.shields.io/badge/Get_the_APK_on_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Get the APK on Discord" />
+  </a>
+</p>
 
 On a TV or Fire TV device, take the **TV build** from the same server — transfer it from a phone, or
 open Discord on the TV — then install it with the system package installer.
