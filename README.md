@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/wZmNumfC9">
-    <img src="https://img.shields.io/badge/Get_the_APK-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Get the Anilili APK on Discord" />
+  <a href="https://anilili.biz">
+    <img src="https://img.shields.io/badge/Website-anilili.biz-5865F2?style=for-the-badge&logo=google-chrome&logoColor=white" alt="Anilili Website" />
   </a>
   <a href="https://discord.gg/wZmNumfC9">
     <img src="https://img.shields.io/badge/Join_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Anilili Discord server" />
@@ -26,6 +26,7 @@
 </p>
 
 <p align="center">
+  <a href="https://anilili.biz">Visit website</a> ·
   <a href="https://discord.gg/wZmNumfC9">Get the app</a> ·
   <a href="https://github.com/kompoti121/Anilili/releases/latest">Release notes</a> ·
   <a href="https://github.com/kompoti121/Anilili/issues">Report a problem</a>
